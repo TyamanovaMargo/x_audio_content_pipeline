@@ -1,0 +1,4 @@
+playwright==1.40.0
+pandas>=2.2.3
+click==8.1.7
+
