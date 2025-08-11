@@ -2,6 +2,60 @@ import csv
 import os
 from typing import List, Dict, Optional
 import pandas as pd
+import json
+import os
+from datetime import datetime
+from typing import Set, Dict
+
+def load_processed_log(log_file: str = "processed_usernames.json") -> Dict:
+    """
+    Load previously processed usernames from log file.
+    
+    Returns:
+        Dict with username as key and processing info as value
+    """
+    if not os.path.exists(log_file):
+        return {}
+    
+    try:
+        with open(log_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        print(f"⚠️  Could not read log file {log_file}, starting fresh")
+        return {}
+
+def save_processed_log(processed_usernames: Dict, log_file: str = "processed_usernames.json"):
+    """Save processed usernames to log file."""
+    try:
+        with open(log_file, 'w', encoding='utf-8') as f:
+            json.dump(processed_usernames, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"⚠️  Could not save log file: {e}")
+
+def add_to_processed_log(username: str, status: str, processed_dict: Dict):
+    """Add a username and its status to the processed log."""
+    processed_dict[username] = {
+        'status': status,
+        'checked_at': datetime.now().isoformat(),
+        'profile_url': f"https://x.com/{username}"
+    }
+
+def filter_new_usernames(usernames: list, processed_log: Dict) -> list:
+    """Filter out usernames that have already been processed."""
+    new_usernames = []
+    skipped_count = 0
+    
+    for username in usernames:
+        if username in processed_log:
+            skipped_count += 1
+            print(f"⏭️  Skipping {username} (already checked: {processed_log[username]['status']})")
+        else:
+            new_usernames.append(username)
+    
+    if skipped_count > 0:
+        print(f"📋 Skipped {skipped_count} already processed usernames")
+    
+    return new_usernames
 
 def read_usernames(file_path: str, username_column: Optional[str] = None) -> List[str]:
     """
