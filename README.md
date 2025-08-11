@@ -37,3 +37,33 @@ playwright install chromium
 
 ### Basic usage:
 python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv
+
+# Normal run (skips previously processed usernames)
+python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv
+
+# Force recheck all usernames (ignores log)
+python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv --force-recheck
+
+# Use custom log file
+python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv --log-file my_custom_log.json
+
+# Generate complete report including previously processed
+python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv --all-report complete_report.csv
+
+Log File Format
+
+The processed_usernames.json file will look like:
+
+json
+{
+  "elonmusk": {
+    "status": "exists",
+    "checked_at": "2025-08-11T16:21:30.123456",
+    "profile_url": "https://x.com/elonmusk"
+  },
+  "nonexistentuser": {
+    "status": "does_not_exist", 
+    "checked_at": "2025-08-11T16:21:35.789012",
+    "profile_url": "https://x.com/nonexistentuser"
+  }
+}

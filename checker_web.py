@@ -143,9 +143,9 @@ class XAccountChecker:
             page_title = page.title()
             print(f"📄 Page Title: '{page_title}'")
             
-            # Take screenshot for visual inspection
-            page.screenshot(path=f"debug_{username}.png")
-            print(f"📸 Screenshot saved: debug_{username}.png")
+            # REMOVE THESE LINES:
+            # page.screenshot(path=f"debug_{username}.png")
+            # print(f"📸 Screenshot saved: debug_{username}.png")
             
             # Check what text is actually on the page
             page_text = page.inner_text('body')

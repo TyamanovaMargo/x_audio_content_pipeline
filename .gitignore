@@ -179,6 +179,8 @@ logs/
 *.tmp
 *.temp
 
+*.csv
+
 # API keys or sensitive config (if you add any)
 config.ini
 secrets.json
