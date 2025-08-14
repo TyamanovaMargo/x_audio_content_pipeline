@@ -61,76 +61,7 @@ class XAccountChecker:
                         'status': 'error'
                     }
                 time.sleep(2)
-    
-    # def _determine_account_status(self, page: Page, username: str) -> str:
-    #     """
-    #     Determine account status based on page content.
-        
-    #     Returns:
-    #         'exists', 'does_not_exist', 'suspended', or 'private'
-    #     """
-    #     try:
-    #         # Check for "This account doesn't exist" message
-    #         not_exist_locator = page.get_by_text("This account doesn't exist", exact=False)
-    #         try:
-    #             not_exist_locator.wait_for(timeout=3000)
-    #             return 'does_not_exist'
-    #         except PlaywrightTimeoutError:
-    #             pass
-            
-    #         # Check for "Account suspended" message
-    #         suspended_locator = page.get_by_text("Account suspended", exact=False)
-    #         try:
-    #             suspended_locator.wait_for(timeout=3000)
-    #             return 'suspended'
-    #         except PlaywrightTimeoutError:
-    #             pass
-            
-    #         # Check for "These Tweets are protected" (private account)
-    #         protected_locator = page.get_by_text("These Tweets are protected", exact=False)
-    #         try:
-    #             protected_locator.wait_for(timeout=3000)
-    #             return 'exists'  # Private accounts still exist
-    #         except PlaywrightTimeoutError:
-    #             pass
-            
-    #         # Check for profile indicators showing account exists
-    #         # Look for the @username handle in the profile
-    #         handle_locator = page.get_by_text(f"@{username}", exact=False)
-    #         try:
-    #             handle_locator.wait_for(timeout=5000)
-                
-    #             # Additional check: look for profile structure elements
-    #             # Check if we can find a profile header or user info section
-    #             profile_indicators = [
-    #                 'div[data-testid="UserName"]',
-    #                 'div[data-testid="UserDescription"]',
-    #                 'div[data-testid="primaryColumn"]'
-    #             ]
-                
-    #             for indicator in profile_indicators:
-    #                 try:
-    #                     page.wait_for_selector(indicator, timeout=2000)
-    #                     return 'exists'
-    #                 except PlaywrightTimeoutError:
-    #                     continue
-                
-    #             return 'exists'  # Found @username, likely exists
-                
-    #         except PlaywrightTimeoutError:
-    #             pass
-            
-    #         # If none of the above conditions are met, check page title
-    #         title = page.title()
-    #         if "not found" in title.lower() or "doesn't exist" in title.lower():
-    #             return 'does_not_exist'
-            
-    #         # Default to unknown if we can't determine
-    #         return 'unknown'
-            
-    #     except Exception as e:
-    #         self.logger.error(f"Error determining status for {username}: {str(e)}")
-    #         return 'error'
+
     def _determine_account_status(self, page: Page, username: str) -> str:
         try:
             print(f"\n🔍 DEBUGGING: {username}")
