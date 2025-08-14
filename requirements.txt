@@ -2,4 +2,9 @@ playwright==1.40.0
 pandas==2.1.4
 requests==2.31.0
 python-dotenv==1.0.0
+yt-dlp>=2023.7.6
+SpeechRecognition>=3.10.0
+webrtcvad>=2.0.10
+pydub>=0.25.1
+numpy>=1.21.0
 

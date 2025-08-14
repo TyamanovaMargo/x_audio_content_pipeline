@@ -121,3 +121,32 @@ python step3_bright_data_download.py --snapshot-id s_abc123
 
 Filtering already collected links:
 python step4_audio_filter.py --input output/3_snapshot_s_abc123_external_links.csv --output output/4_snapshot_s_abc123_audio_links.csv
+
+
+# Standard execution
+python main_pipeline.py --input usernames.csv
+
+# Management commands  
+python main_pipeline.py --show-log
+python main_pipeline.py --show-snapshots
+python main_pipeline.py --analyze-duplicates
+python main_pipeline.py --help-detailed
+
+
+📄 Complete Output Files:
+
+    1_existing_accounts.csv - Validated accounts
+
+    2_snapshot_<id>_results.csv - Full profile data
+
+    3_snapshot_<id>_external_links.csv - All external links
+
+    4_snapshot_<id>_audio_links.csv - Audio platform links
+
+    5_snapshot_<id>_verified_voice.csv - All verification results
+
+    5_snapshot_<id>_confirmed_voice.csv - 🎙️ FINAL VOICE CONTENT RESULTS
+
+
+ Use Your Existing Audio Links File
+python run_stage5_only.py --input output/4_snapshot_s_meb9udmcf8hu9g5yv_audio_links.csv
