@@ -1,69 +1,123 @@
-x-account-validator/
-├── validate_x_accounts.py      # Main CLI entry point
-├── io_utils.py                 # File I/O operations
-├── username_utils.py           # Username validation and URL building
-├── checker_web.py              # Playwright account verification logic
-├── requirements.txt            # Dependencies
-├── README.md                   # Documentation
-├── sample_usernames.csv        # Example input file
-└── tests/                      # Unit tests
-    ├── test_username_utils.py
-    └── test_io_utils.py
+# X/Twitter Audio Content Pipeline
+
+A full-featured pipeline for validating X/Twitter accounts, collecting profile data through Bright Data API, extracting external links, and filtering for audio/video platforms with potential voice content such as YouTube, Spotify, TikTok, Twitch, etc.
+
+---
+
+## 📌 Pipeline Overview
+
+**Stages:**
+1. **Account Validation** — Check if accounts exist using Playwright web scraping  
+2. **Bright Data Integration** — Create snapshots containing **only validated accounts**  
+3. **Data Download** — Retrieve Bright Data snapshot results and extract external links  
+4. **Audio Link Filtering** — Keep only links from audio/video platforms  
+5. **Snapshot Tracking** — Save metadata for each snapshot, its accounts, and results  
+6. **Results Saving** — All outputs saved in a structured `output/` folder
+
+---
+
+## 📂 Project Structure
+
+x-audio-content-pipeline/
+├── main_pipeline.py # Main orchestrator with snapshot tracking
+├── step1_validate_accounts.py # Stage 1 - account validation
+├── step2_bright_data_trigger.py # Stage 2 - create Bright Data snapshot
+├── step3_bright_data_download.py # Stage 3 - snapshot download & link extraction
+├── step4_audio_filter.py # Stage 4 - filter for audio platforms
+├── snapshot_manager.py # Manage snapshot metadata & registry
+├── utils/
+│ ├── checker_web.py # Playwright-based account checker
+│ ├── io_utils.py # Read/write files, handle logs
+│ ├── username_utils.py # Username parsing & normalization
+├── config.py # Pipeline configuration
+├── requirements.txt # Dependencies
+├── output/
+│ ├── 1_existing_accounts.csv
+│ ├── 2_snapshot_results.csv
+│ ├── 3_external_links.csv
+│ ├── 4_audio_links_.csv
+│ └── snapshots/
+│ ├── snapshot_registry.json
+│ ├── s_metadata.json
+│ └── s*_accounts.csv
+└── README.md
 
 
-# X/Twitter Account Validator
+---
 
-A Python tool that uses Playwright to verify whether X/Twitter accounts exist without using the official API.
+## 🛠 Installation
 
-## ⚠️ Important Legal Notice
+Clone repo
 
-This tool uses automated web browsing to check account existence. Please note:
-- X/Twitter's Terms of Service prohibit unauthorized scraping and automated access
-- Use this tool responsibly with low request rates and proper delays
-- Consider obtaining explicit permission from X/Twitter before use
-- This tool is for educational and research purposes
+git clone <your-repo-url>
+cd x-audio-content-pipeline
+Install dependencies
 
-## Installation
-
-1. Install Python dependencies:
 pip install -r requirements.txt
+Install Playwright browsers
 
-
-2. Install Playwright browsers:
 playwright install chromium
 
 
-## Usage
+Create a `.env` file with:
 
-### Basic usage:
-python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv
 
-# Normal run (skips previously processed usernames)
-python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv
+---
 
-# Force recheck all usernames (ignores log)
-python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv --force-recheck
+## 📊 Input Formats
 
-# Use custom log file
-python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv --log-file my_custom_log.json
+**CSV:**
+username
+elonmusk
+naval
 
-# Generate complete report including previously processed
-python validate_x_accounts.py --input usernames.csv --output existing_accounts.csv --all-report complete_report.csv
+---
 
-Log File Format
+## 🚀 Running the Pipeline
 
-The processed_usernames.json file will look like:
+### Full Run
+python main_pipeline.py --input usernames.csv --output-dir output/
 
-json
-{
-  "elonmusk": {
-    "status": "exists",
-    "checked_at": "2025-08-11T16:21:30.123456",
-    "profile_url": "https://x.com/elonmusk"
-  },
-  "nonexistentuser": {
-    "status": "does_not_exist", 
-    "checked_at": "2025-08-11T16:21:35.789012",
-    "profile_url": "https://x.com/nonexistentuser"
-  }
-}
+
+### With Account Limit
+python main_pipeline.py --input usernames.csv --max-accounts 50
+
+
+### List Snapshots
+python main_pipeline.py --list-snapshots
+
+
+---
+
+## 📈 Outputs
+
+- `1_existing_accounts.csv` — Validated accounts  
+- `2_snapshot_*_results.csv` — Full Bright Data profile data  
+- `3_external_links_*.csv` — Extracted external links  
+- `4_audio_links_*.csv` — Filtered audio/video platform links  
+- `output/snapshots/` — Metadata & account lists for each snapshot  
+- `pipeline_summary.json` — Summary stats for last run  
+
+---
+
+## 🎵 Platforms Detected
+
+**High:** Spotify, SoundCloud, Apple Music, Apple Podcasts, Anchor  
+**Medium:** YouTube, Twitch, TikTok  
+**Low:** Instagram, Discord, Kick
+
+---
+
+# Launch in stages (for example, for debugging)
+
+Account verification only:
+python step1_validate_accounts.py --input usernames.csv --output output/1_existing_accounts.csv
+
+Create snapshot directly:
+python step2_bright_data_trigger.py --usernames output/1_existing_accounts.csv
+
+Downloading snapshot data:
+python step3_bright_data_download.py --snapshot-id s_abc123
+
+Filtering already collected links:
+python step4_audio_filter.py --input output/3_snapshot_s_abc123_external_links.csv --output output/4_snapshot_s_abc123_audio_links.csv
