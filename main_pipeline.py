@@ -10,17 +10,19 @@ from step4_audio_filter import AudioContentFilter
 from step4_5_audio_detector import AudioContentDetector
 from step5_voice_verification import VoiceContentVerifier
 from step6_voice_sample_extractor import VoiceSampleExtractor
+from step7_simple_audio_filter import SimpleAudioContentAnalyzer
 from snapshot_manager import SnapshotManager
 
 def main(input_file, force_recheck=False):
-    """Main pipeline execution - YouTube & Twitch Voice Content Pipeline (30s, 1 video)"""
+    """Main pipeline execution - YouTube & Twitch Voice Content Pipeline (30s samples with voice-only filtering)"""
     cfg = Config()
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
     print("🎙️ YOUTUBE & TWITCH VOICE CONTENT PIPELINE")
     print("=" * 60)
     print("🎯 Focus: YouTube and Twitch voice content extraction")
-    print("🎤 Output: 30-second voice samples (1 video per user)")
+    print("🎤 Output: 30-second voice samples with voice-only filtering")
+    print("🔍 Stages: 7 comprehensive processing stages")
 
     # Stage 1: Account Validation with Persistent Logging
     print("\n✅ STAGE 1: Account Validation with Persistent Logging")
@@ -221,16 +223,15 @@ def main(input_file, force_recheck=False):
         print("💡 This means the YouTube/Twitch links found were likely music or non-voice content")
         confirmed_voice = []  # Ensure it's an empty list for Stage 6
 
-    # Stage 6: Voice Sample Extraction (30-second samples, 1 video per user)
-    print("\n🎤 STAGE 6: Voice Sample Extraction (30s samples, 1 video per user)")
+    # Stage 6: Voice Sample Extraction (30-second samples)
+    print("\n🎤 STAGE 6: Voice Sample Extraction (30s samples)")
     print("-" * 60)
 
     if confirmed_voice:
         sample_extractor = VoiceSampleExtractor(
             output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_samples"),
             sample_duration=30,   # 30 seconds
-            quality="192",        # 192 kbps
-            # max_videos=1          # 1 video per user
+            quality="192"         # 192 kbps
         )
         
         extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
@@ -250,7 +251,6 @@ def main(input_file, force_recheck=False):
             print(f"  📁 Samples directory: {sample_extractor.output_dir}")
             print(f"  📄 Report file: {report_file}")
             print(f"  ⏱️ Sample duration: 30 seconds each")
-            print(f"  🎬 Videos per user: 1 video")
             
             # Show extracted files
             print(f"\n🎵 Extracted Sample Files:")
@@ -265,9 +265,62 @@ def main(input_file, force_recheck=False):
         else:
             print("❌ No voice samples could be extracted")
             print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
+            extracted_samples = []
     else:
         print("⏭️ Skipping voice sample extraction - no confirmed voice content")
         extracted_samples = []
+
+    # Stage 7: Audio Content Filtering (Voice-Only Detection)
+    print("\n🔍 STAGE 7: Audio Content Filtering (Voice-Only Detection)")
+    print("-" * 60)
+
+    if extracted_samples:
+        analyzer = SimpleAudioContentAnalyzer(
+            output_dir=os.path.join(cfg.OUTPUT_DIR, "audio_analysis"),
+            min_voice_confidence=0.5  # Configurable threshold
+        )
+        
+        voice_only_samples = analyzer.analyze_audio_samples(extracted_samples)
+        
+        if voice_only_samples:
+            # Save voice-only results
+            voice_only_file = os.path.join(cfg.OUTPUT_DIR, f"7_snapshot_{snapshot_id}_voice_only.csv")
+            analyzer.save_voice_only_samples(voice_only_samples, voice_only_file)
+            
+            # Generate comprehensive report
+            report_file = analyzer.generate_simple_report(voice_only_samples, extracted_samples)
+            
+            # Copy voice-only audio files
+            voice_dir = analyzer.copy_voice_samples(voice_only_samples)
+            
+            print(f"🔍 Audio Content Filtering Summary:")
+            print(f"  📊 Total audio samples: {len(extracted_samples)}")
+            print(f"  ✅ Voice-only samples: {len(voice_only_samples)}")
+            print(f"  ❌ Filtered out: {len(extracted_samples) - len(voice_only_samples)}")
+            print(f"  📈 Voice detection rate: {(len(voice_only_samples) / len(extracted_samples) * 100):.1f}%")
+            print(f"  📁 Voice-only CSV: {voice_only_file}")
+            print(f"  📄 Analysis report: {report_file}")
+            print(f"  🎵 Voice-only audio: {voice_dir}")
+            
+            # Show sample results with speech content
+            print(f"\n🎤 Sample Voice-Only Content:")
+            for i, sample in enumerate(voice_only_samples[:3], 1):
+                username = sample.get('processed_username', 'unknown')
+                speech_text = sample.get('speech_text', '')[:50]
+                confidence = sample.get('voice_confidence', 0)
+                word_count = sample.get('word_count', 0)
+                platform = sample.get('platform_source', 'unknown')
+                print(f"  {i}. @{username} ({platform}) | \"{speech_text}...\"")
+                print(f"     📊 Confidence: {confidence:.2f} | Words: {word_count}")
+                
+        else:
+            print("❌ No voice-only content found after filtering")
+            print("💡 All audio samples contained music, noise, or unclear content")
+            print("💡 Consider lowering minimum confidence threshold")
+            voice_only_samples = []  # Ensure it's empty for final summary
+    else:
+        print("⏭️ Skipping audio content filtering - no audio samples extracted")
+        voice_only_samples = []
 
     # Final comprehensive summary
     print("\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
@@ -279,8 +332,9 @@ def main(input_file, force_recheck=False):
     print(f"🔊 Audio content confirmed: {len(audio_detected_links)}")
     print(f"🎙️ Voice content confirmed: {len(confirmed_voice)}")
     print(f"🎤 Voice samples extracted: {len(extracted_samples) if 'extracted_samples' in locals() else 0}")
+    print(f"✅ Voice-only samples (filtered): {len(voice_only_samples) if 'voice_only_samples' in locals() else 0}")
     print(f"📈 Voice confirmation rate: {(len(confirmed_voice) / len(audio_links) * 100):.1f}%" if audio_links else "0%")
-    print(f"📈 Sample extraction rate: {(len(extracted_samples) / len(confirmed_voice) * 100):.1f}%" if confirmed_voice and 'extracted_samples' in locals() else "0%")
+    print(f"📈 Voice-only filtering rate: {(len(voice_only_samples) / len(extracted_samples) * 100):.1f}%" if 'extracted_samples' in locals() and extracted_samples and 'voice_only_samples' in locals() else "0%")
     print(f"🆔 Snapshot ID: {snapshot_id}")
     print(f"📁 Results saved in: {cfg.OUTPUT_DIR}")
 
@@ -296,7 +350,10 @@ def main(input_file, force_recheck=False):
         print(f"  7. {confirmed_file} - ⭐ CONFIRMED VOICE CONTENT")
     if 'extracted_samples' in locals() and extracted_samples:
         print(f"  8. {extraction_file} - 🎤 VOICE SAMPLE EXTRACTION RESULTS")
-        print(f"  9. {sample_extractor.output_dir} - 🎵 30-SECOND VOICE SAMPLES DIRECTORY")
+        print(f"  9. {sample_extractor.output_dir} - 🎵 VOICE SAMPLES DIRECTORY")
+    if 'voice_only_samples' in locals() and voice_only_samples:
+        print(f"  10. {voice_only_file} - ✅ VOICE-ONLY FILTERED RESULTS")
+        print(f"  11. {voice_dir} - 🎤 VOICE-ONLY AUDIO FILES")
 
 # Individual Stage Runner Functions
 
@@ -573,8 +630,8 @@ def run_stage5_only(audio_links_file, output_dir="output"):
     print(f"🎙️ Voice content found: {len(confirmed_voice)}")
 
 def run_stage6_only(confirmed_voice_file, output_dir="output"):
-    """Run only Stage 6: Voice Sample Extraction (30s, 1 video)"""
-    print("🎤 STAGE 6 ONLY: Voice Sample Extraction (30s samples, 1 video per user)")
+    """Run only Stage 6: Voice Sample Extraction (30s samples)"""
+    print("🎤 STAGE 6 ONLY: Voice Sample Extraction (30s samples)")
     print("=" * 50)
     
     # Load confirmed voice links
@@ -594,12 +651,11 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print("❌ No confirmed voice links found in file")
         return
     
-    # Extract voice samples with 30s duration and 1 video per user
+    # Extract voice samples
     sample_extractor = VoiceSampleExtractor(
         output_dir=os.path.join(output_dir, "voice_samples"),
         sample_duration=30,   # 30 seconds
-        quality="192",
-        # max_videos=1          # 1 video per user
+        quality="192"
     )
     
     extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
@@ -619,7 +675,7 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print(f"📄 Report: {report_file}")
         print(f"🎵 Samples directory: {sample_extractor.output_dir}")
         print(f"⏱️ Sample duration: 30 seconds per sample")
-        print(f"🎬 Videos per user: 1 video")
+        print(f"💡 Next: Run Stage 7 with --stage7-only {extraction_file}")
         
         # Show extracted files
         print(f"\n🎵 Extracted Sample Files:")
@@ -639,14 +695,77 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
         print("💡 Also ensure the confirmed voice links are accessible")
 
+def run_stage7_only(extracted_samples_file, output_dir="output"):
+    """Run only Stage 7: Audio Content Filtering (Voice-Only Detection)"""
+    print("🔍 STAGE 7 ONLY: Audio Content Filtering (Voice-Only Detection)")
+    print("=" * 50)
+    
+    # Load extracted samples
+    if not os.path.exists(extracted_samples_file):
+        print(f"❌ Extracted samples file not found: {extracted_samples_file}")
+        return
+    
+    try:
+        df = pd.read_csv(extracted_samples_file)
+        extracted_samples = df.to_dict('records')
+        print(f"📥 Loaded {len(extracted_samples)} audio samples from: {extracted_samples_file}")
+    except Exception as e:
+        print(f"❌ Error loading extracted samples: {e}")
+        return
+    
+    if not extracted_samples:
+        print("❌ No audio samples found in file")
+        return
+    
+    # Simple audio content filtering
+    analyzer = SimpleAudioContentAnalyzer(
+        output_dir=os.path.join(output_dir, "audio_analysis"),
+        min_voice_confidence=0.5
+    )
+    
+    voice_only_samples = analyzer.analyze_audio_samples(extracted_samples)
+    
+    if voice_only_samples:
+        # Save results
+        base_name = os.path.splitext(os.path.basename(extracted_samples_file))[0]
+        voice_only_file = os.path.join(output_dir, f"7_{base_name}_voice_only.csv")
+        analyzer.save_voice_only_samples(voice_only_samples, voice_only_file)
+        
+        # Generate comprehensive report
+        report_file = analyzer.generate_simple_report(voice_only_samples, extracted_samples)
+        
+        # Copy voice-only files
+        voice_dir = analyzer.copy_voice_samples(voice_only_samples)
+        
+        print(f"✅ Stage 7 completed!")
+        print(f"🎤 Voice-only samples found: {len(voice_only_samples)}")
+        print(f"📁 Voice-only results: {voice_only_file}")
+        print(f"📄 Analysis report: {report_file}")
+        print(f"🎵 Voice-only audio files: {voice_dir}")
+        print(f"📈 Voice detection rate: {(len(voice_only_samples) / len(extracted_samples) * 100):.1f}%")
+        
+        # Show sample results
+        print(f"\n🎤 Sample Voice-Only Content:")
+        for i, sample in enumerate(voice_only_samples[:3], 1):
+            username = sample.get('processed_username', 'unknown')
+            speech_text = sample.get('speech_text', '')[:40]
+            confidence = sample.get('voice_confidence', 0)
+            word_count = sample.get('word_count', 0)
+            print(f"  {i}. @{username} | \"{speech_text}...\" | {confidence:.2f} confidence ({word_count} words)")
+        
+    else:
+        print("❌ No voice-only samples found")
+        print("💡 Try lowering minimum confidence or check audio quality")
+        print("💡 All samples may contain music or non-voice content")
+
 def show_help():
     """Show detailed usage help"""
     help_text = """
-🎙️ YOUTUBE & TWITCH VOICE CONTENT PIPELINE (30s samples, 1 video per user)
+🎙️ YOUTUBE & TWITCH VOICE CONTENT PIPELINE (7-Stage Processing)
 
 This pipeline validates X/Twitter accounts, collects profile data through Bright Data API,
 extracts external links, filters for YouTube & Twitch platforms, detects audio content,
-verifies voice/speech content, and extracts 30-second voice samples (1 video per user).
+verifies voice/speech content, extracts 30-second voice samples, and filters for voice-only content.
 
 USAGE:
 python main_pipeline.py [options]
@@ -663,6 +782,7 @@ INDIVIDUAL STAGES:
 --stage4_5-only FILE        Run only Stage 4.5 (Audio Content Detection)
 --stage5-only FILE          Run only Stage 5 (Voice Verification)
 --stage6-only FILE          Run only Stage 6 (Voice Sample Extraction)
+--stage7-only FILE          Run only Stage 7 (Voice-Only Filtering)
 
 INFORMATION:
 --show-log                  Show account validation summary
@@ -684,6 +804,7 @@ python main_pipeline.py --stage4-only output/3_snapshot_snap_12345_external_link
 python main_pipeline.py --stage4_5-only output/4_snapshot_snap_12345_audio_links.csv
 python main_pipeline.py --stage5-only output/4_5_snapshot_snap_12345_audio_detected.csv
 python main_pipeline.py --stage6-only output/5_snapshot_snap_12345_confirmed_voice.csv
+python main_pipeline.py --stage7-only output/6_snapshot_snap_12345_voice_samples.csv
 
 PIPELINE STAGES:
 1. Account Validation       - Validate X/Twitter accounts exist
@@ -692,7 +813,8 @@ PIPELINE STAGES:
 4. Audio Platform Filter   - Filter for YouTube/Twitch only
 4.5 Audio Content Detection - Verify actual audio content exists
 5. Voice Verification      - Confirm voice/speech content (not music)
-6. Voice Sample Extraction - Extract 30-second voice samples (1 video per user)
+6. Voice Sample Extraction - Extract 30-second voice samples
+7. Voice-Only Filtering    - Filter for pure voice content using speech recognition
 
 SUPPORTED PLATFORMS:
 - YouTube (youtube.com, youtu.be)
@@ -709,21 +831,20 @@ VOICE CONTENT TYPES DETECTED:
 SAMPLE SPECIFICATIONS:
 - Duration: 30 seconds per sample
 - Quality: 192 kbps MP3
-- Videos per user: 1 video (latest/most recent)
 - YouTube timing: 0:00-0:30 (from beginning)
-- Twitch timing: 5:00-5:30 (skip intro music)
+- Twitch timing: 3:00-3:30 (skip intro music)
+- Voice-only filtering: Google Speech Recognition API
 - Expected file size: 300-800KB per sample
 
 DEPENDENCIES:
-pip install requests pandas playwright
-pip install yt-dlp ffmpeg
+pip install requests pandas playwright yt-dlp SpeechRecognition
 playwright install chromium
 """
     print(help_text)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="YouTube & Twitch Voice Content Pipeline with 30s Voice Sample Extraction (1 video per user)",
+        description="YouTube & Twitch Voice Content Pipeline with 7-Stage Processing",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
@@ -737,7 +858,8 @@ if __name__ == "__main__":
     parser.add_argument("--stage4-only", help="Run only Stage 4 - Filter YouTube/Twitch from links file")
     parser.add_argument("--stage4_5-only", help="Run only Stage 4.5 - Detect audio content from audio links file")
     parser.add_argument("--stage5-only", help="Run only Stage 5 - Voice verification on audio links file")
-    parser.add_argument("--stage6-only", help="Run only Stage 6 - Extract 30s voice samples (1 video) from confirmed voice file")
+    parser.add_argument("--stage6-only", help="Run only Stage 6 - Extract 30s voice samples from confirmed voice file")
+    parser.add_argument("--stage7-only", help="Run only Stage 7 - Filter voice-only content from extracted samples file")
 
     # Information commands
     parser.add_argument("--show-log", action="store_true", help="Show account validation log summary")
@@ -800,6 +922,13 @@ if __name__ == "__main__":
         run_stage6_only(args.stage6_only, "output")
         sys.exit(0)
 
+    if args.stage7_only:
+        if not os.path.exists(args.stage7_only):
+            print(f"❌ Extracted samples file not found: {args.stage7_only}")
+            sys.exit(1)
+        run_stage7_only(args.stage7_only, "output")
+        sys.exit(0)
+
     # Handle information commands
     if args.show_log:
         try:
@@ -842,9 +971,9 @@ if __name__ == "__main__":
 
         # Run main pipeline with comprehensive error handling
         try:
-            print(f"🚀 Starting full pipeline with input: {args.input}")
+            print(f"🚀 Starting full 7-stage pipeline with input: {args.input}")
             print(f"🔄 Force recheck: {'Yes' if args.force_recheck else 'No (using cache)'}")
-            print(f"⏱️ Configuration: 30-second samples, 1 video per user")
+            print(f"⏱️ Configuration: 30-second samples with voice-only filtering")
             main(args.input, args.force_recheck)
         except KeyboardInterrupt:
             print("\n\n⏹️ Pipeline interrupted by user (Ctrl+C)")
@@ -865,7 +994,7 @@ if __name__ == "__main__":
         print("📖 Use --help-detailed for complete usage guide")
         print("\n🎯 Quick start examples:")
         print("  python main_pipeline.py --input usernames.csv")
-        print("  python main_pipeline.py --stage6-only output/5_confirmed_voice.csv")
+        print("  python main_pipeline.py --stage7-only output/6_voice_samples.csv")
         print("  python main_pipeline.py --show-log")
-        print("\n⏱️ Current configuration: 30-second samples, 1 video per user")
+        print("\n⏱️ Current configuration: 7-stage processing with voice-only filtering")
         sys.exit(1)

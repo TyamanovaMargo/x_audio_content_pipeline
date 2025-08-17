@@ -10,7 +10,7 @@ import json
 import re
 
 class VoiceSampleExtractor:
-    def __init__(self, output_dir="voice_samples", sample_duration=30, quality="192"):
+    def __init__(self, output_dir="voice_samples", sample_duration=120, quality="192"):
         self.output_dir = output_dir
         self.sample_duration = sample_duration  # seconds
         self.quality = quality  # kbps
