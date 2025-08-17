@@ -159,6 +159,7 @@ python main_pipeline.py --stage3-only snap_12345
 python main_pipeline.py --stage4-only output/3_snapshot_snap_12345_external_links.csv
 python main_pipeline.py --stage5-only output/4_snapshot_snap_12345_audio_links.csv
 
+python main_pipeline.py --stage6-only output/5_snapshot_123_confirmed_voice.csv
 # Check progress anytime
 python main_pipeline.py --show-log
 python main_pipeline.py --show-snapshots
