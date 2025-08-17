@@ -13,14 +13,14 @@ from step6_voice_sample_extractor import VoiceSampleExtractor
 from snapshot_manager import SnapshotManager
 
 def main(input_file, force_recheck=False):
-    """Main pipeline execution - YouTube & Twitch Voice Content Pipeline"""
+    """Main pipeline execution - YouTube & Twitch Voice Content Pipeline (30s, 1 video)"""
     cfg = Config()
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
     print("🎙️ YOUTUBE & TWITCH VOICE CONTENT PIPELINE")
     print("=" * 60)
     print("🎯 Focus: YouTube and Twitch voice content extraction")
-    print("🎤 Output: Voice samples ready for analysis")
+    print("🎤 Output: 30-second voice samples (1 video per user)")
 
     # Stage 1: Account Validation with Persistent Logging
     print("\n✅ STAGE 1: Account Validation with Persistent Logging")
@@ -221,15 +221,16 @@ def main(input_file, force_recheck=False):
         print("💡 This means the YouTube/Twitch links found were likely music or non-voice content")
         confirmed_voice = []  # Ensure it's an empty list for Stage 6
 
-    # Stage 6: Voice Sample Extraction
-    print("\n🎤 STAGE 6: Voice Sample Extraction")
+    # Stage 6: Voice Sample Extraction (30-second samples, 1 video per user)
+    print("\n🎤 STAGE 6: Voice Sample Extraction (30s samples, 1 video per user)")
     print("-" * 60)
 
     if confirmed_voice:
         sample_extractor = VoiceSampleExtractor(
             output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_samples"),
-            sample_duration=30,  # 30 seconds per sample
-            quality="192"  # 192 kbps
+            sample_duration=30,   # 30 seconds
+            quality="192",        # 192 kbps
+            # max_videos=1          # 1 video per user
         )
         
         extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
@@ -248,10 +249,22 @@ def main(input_file, force_recheck=False):
             print(f"  ✅ Successful extractions: {len(extracted_samples)}")
             print(f"  📁 Samples directory: {sample_extractor.output_dir}")
             print(f"  📄 Report file: {report_file}")
+            print(f"  ⏱️ Sample duration: 30 seconds each")
+            print(f"  🎬 Videos per user: 1 video")
+            
+            # Show extracted files
+            print(f"\n🎵 Extracted Sample Files:")
+            for sample in extracted_samples:
+                filename = sample.get('sample_filename', 'N/A')
+                username = sample.get('processed_username', 'unknown')
+                platform = sample.get('platform_source', 'unknown')
+                start_time = sample.get('start_time_formatted', '0:00')
+                file_size = sample.get('file_size_bytes', 0)
+                print(f"  📄 {filename} (@{username} {platform} from {start_time}, {file_size//1000}KB)")
             
         else:
             print("❌ No voice samples could be extracted")
-            print("💡 Check internet connection and ensure yt-dlp is installed")
+            print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
     else:
         print("⏭️ Skipping voice sample extraction - no confirmed voice content")
         extracted_samples = []
@@ -283,7 +296,7 @@ def main(input_file, force_recheck=False):
         print(f"  7. {confirmed_file} - ⭐ CONFIRMED VOICE CONTENT")
     if 'extracted_samples' in locals() and extracted_samples:
         print(f"  8. {extraction_file} - 🎤 VOICE SAMPLE EXTRACTION RESULTS")
-        print(f"  9. {sample_extractor.output_dir} - 🎵 VOICE SAMPLES DIRECTORY")
+        print(f"  9. {sample_extractor.output_dir} - 🎵 30-SECOND VOICE SAMPLES DIRECTORY")
 
 # Individual Stage Runner Functions
 
@@ -560,8 +573,8 @@ def run_stage5_only(audio_links_file, output_dir="output"):
     print(f"🎙️ Voice content found: {len(confirmed_voice)}")
 
 def run_stage6_only(confirmed_voice_file, output_dir="output"):
-    """Run only Stage 6: Voice Sample Extraction"""
-    print("🎤 STAGE 6 ONLY: Voice Sample Extraction")
+    """Run only Stage 6: Voice Sample Extraction (30s, 1 video)"""
+    print("🎤 STAGE 6 ONLY: Voice Sample Extraction (30s samples, 1 video per user)")
     print("=" * 50)
     
     # Load confirmed voice links
@@ -581,11 +594,12 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print("❌ No confirmed voice links found in file")
         return
     
-    # Extract voice samples
+    # Extract voice samples with 30s duration and 1 video per user
     sample_extractor = VoiceSampleExtractor(
         output_dir=os.path.join(output_dir, "voice_samples"),
-        sample_duration=30,
-        quality="192"
+        sample_duration=30,   # 30 seconds
+        quality="192",
+        # max_videos=1          # 1 video per user
     )
     
     extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
@@ -600,40 +614,39 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         report_file = sample_extractor.generate_samples_report(extracted_samples)
         
         print(f"✅ Stage 6 completed!")
-        print(f"🎤 Successfully extracted {len(extracted_samples)} voice samples")
+        print(f"🎤 Successfully extracted {len(extracted_samples)} voice samples (30s each)")
         print(f"📁 Results: {extraction_file}")
         print(f"📄 Report: {report_file}")
         print(f"🎵 Samples directory: {sample_extractor.output_dir}")
+        print(f"⏱️ Sample duration: 30 seconds per sample")
+        print(f"🎬 Videos per user: 1 video")
         
-        # Sample breakdown
-        platform_samples = {}
-        voice_type_samples = {}
+        # Show extracted files
+        print(f"\n🎵 Extracted Sample Files:")
         for sample in extracted_samples:
-            platform = sample.get('platform_type', 'unknown')
-            voice_type = sample.get('voice_type', 'unknown')
-            platform_samples[platform] = platform_samples.get(platform, 0) + 1
-            voice_type_samples[voice_type] = voice_type_samples.get(voice_type, 0) + 1
+            filename = sample.get('sample_filename', 'N/A')
+            username = sample.get('processed_username', 'unknown')
+            platform = sample.get('platform_source', 'unknown')
+            start_time = sample.get('start_time_formatted', '0:00')
+            file_size = sample.get('file_size_bytes', 0)
+            print(f"  📄 {filename} (@{username} {platform} from {start_time}, {file_size//1000}KB)")
         
-        print("\n📊 Extracted Samples Breakdown:")
-        print("  By Platform:")
-        for platform, count in platform_samples.items():
-            print(f"    {platform}: {count}")
-        print("  By Voice Type:")
-        for voice_type, count in voice_type_samples.items():
-            print(f"    {voice_type}: {count}")
+        # Clean temporary files
+        sample_extractor.clean_temp_files()
+        
     else:
         print("❌ No voice samples could be extracted")
-        print("💡 Check internet connection and ensure yt-dlp is installed")
+        print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
         print("💡 Also ensure the confirmed voice links are accessible")
 
 def show_help():
     """Show detailed usage help"""
     help_text = """
-🎙️ YOUTUBE & TWITCH VOICE CONTENT PIPELINE
+🎙️ YOUTUBE & TWITCH VOICE CONTENT PIPELINE (30s samples, 1 video per user)
 
 This pipeline validates X/Twitter accounts, collects profile data through Bright Data API,
 extracts external links, filters for YouTube & Twitch platforms, detects audio content,
-verifies voice/speech content, and extracts voice samples.
+verifies voice/speech content, and extracts 30-second voice samples (1 video per user).
 
 USAGE:
 python main_pipeline.py [options]
@@ -679,7 +692,7 @@ PIPELINE STAGES:
 4. Audio Platform Filter   - Filter for YouTube/Twitch only
 4.5 Audio Content Detection - Verify actual audio content exists
 5. Voice Verification      - Confirm voice/speech content (not music)
-6. Voice Sample Extraction - Extract 30-second voice samples
+6. Voice Sample Extraction - Extract 30-second voice samples (1 video per user)
 
 SUPPORTED PLATFORMS:
 - YouTube (youtube.com, youtu.be)
@@ -693,16 +706,24 @@ VOICE CONTENT TYPES DETECTED:
 - Live talks (Twitch Just Chatting)
 - Gaming commentary
 
+SAMPLE SPECIFICATIONS:
+- Duration: 30 seconds per sample
+- Quality: 192 kbps MP3
+- Videos per user: 1 video (latest/most recent)
+- YouTube timing: 0:00-0:30 (from beginning)
+- Twitch timing: 5:00-5:30 (skip intro music)
+- Expected file size: 300-800KB per sample
+
 DEPENDENCIES:
 pip install requests pandas playwright
-pip install yt-dlp pytube pydub  # For voice sample extraction
+pip install yt-dlp ffmpeg
 playwright install chromium
 """
     print(help_text)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="YouTube & Twitch Voice Content Pipeline with Voice Sample Extraction",
+        description="YouTube & Twitch Voice Content Pipeline with 30s Voice Sample Extraction (1 video per user)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
@@ -716,10 +737,135 @@ if __name__ == "__main__":
     parser.add_argument("--stage4-only", help="Run only Stage 4 - Filter YouTube/Twitch from links file")
     parser.add_argument("--stage4_5-only", help="Run only Stage 4.5 - Detect audio content from audio links file")
     parser.add_argument("--stage5-only", help="Run only Stage 5 - Voice verification on audio links file")
-    parser.add_argument("--stage6-only", help="Run only Stage 6 - Extract voice samples from confirmed voice file")
+    parser.add_argument("--stage6-only", help="Run only Stage 6 - Extract 30s voice samples (1 video) from confirmed voice file")
 
     # Information commands
     parser.add_argument("--show-log", action="store_true", help="Show account validation log summary")
     parser.add_argument("--show-snapshots", action="store_true", help="Show Bright Data snapshots summary")
     parser.add_argument("--analyze-duplicates", action="store_true", help="Analyze duplicate snapshots")
-    parser.add_argument("--clear-log", action="store_true", help="Clear processe
+    parser.add_argument("--clear-log", action="store_true", help="Clear processed accounts log")
+    parser.add_argument("--help-detailed", action="store_true", help="Show detailed usage help")
+
+    args = parser.parse_args()
+
+    # Handle help and info commands FIRST
+    if args.help_detailed:
+        show_help()
+        sys.exit(0)
+
+    # Handle individual stages
+    if args.stage1_only:
+        if not os.path.exists(args.stage1_only):
+            print(f"❌ Input file not found: {args.stage1_only}")
+            sys.exit(1)
+        run_stage1_only(args.stage1_only, args.force_recheck)
+        sys.exit(0)
+
+    if args.stage2_only:
+        if not os.path.exists(args.stage2_only):
+            print(f"❌ Accounts file not found: {args.stage2_only}")
+            sys.exit(1)
+        snapshot_id = run_stage2_only(args.stage2_only)
+        sys.exit(0)
+
+    if args.stage3_only:
+        snapshot_id = run_stage3_only(args.stage3_only)
+        sys.exit(0)
+
+    if args.stage4_only:
+        if not os.path.exists(args.stage4_only):
+            print(f"❌ Links file not found: {args.stage4_only}")
+            sys.exit(1)
+        audio_file = run_stage4_only(args.stage4_only)
+        sys.exit(0)
+
+    if args.stage4_5_only:
+        if not os.path.exists(args.stage4_5_only):
+            print(f"❌ Audio links file not found: {args.stage4_5_only}")
+            sys.exit(1)
+        audio_detected_file = run_stage4_5_only(args.stage4_5_only)
+        sys.exit(0)
+
+    if args.stage5_only:
+        if not os.path.exists(args.stage5_only):
+            print(f"❌ Audio links file not found: {args.stage5_only}")
+            sys.exit(1)
+        run_stage5_only(args.stage5_only, "output")
+        sys.exit(0)
+
+    if args.stage6_only:
+        if not os.path.exists(args.stage6_only):
+            print(f"❌ Confirmed voice file not found: {args.stage6_only}")
+            sys.exit(1)
+        run_stage6_only(args.stage6_only, "output")
+        sys.exit(0)
+
+    # Handle information commands
+    if args.show_log:
+        try:
+            validator = AccountValidator()
+            validator.show_log_summary()
+        except Exception as e:
+            print(f"❌ Error showing log: {e}")
+        sys.exit(0)
+
+    if args.show_snapshots:
+        try:
+            sm = SnapshotManager()
+            sm.print_snapshot_summary()
+        except Exception as e:
+            print(f"❌ Error showing snapshots: {e}")
+        sys.exit(0)
+
+    if args.analyze_duplicates:
+        try:
+            sm = SnapshotManager()
+            sm.print_duplicate_analysis()
+        except Exception as e:
+            print(f"❌ Error analyzing duplicates: {e}")
+        sys.exit(0)
+
+    if args.clear_log:
+        try:
+            validator = AccountValidator()
+            validator.clear_log()
+            print("✅ Account validation log cleared")
+        except Exception as e:
+            print(f"❌ Error clearing log: {e}")
+        sys.exit(0)
+
+    # Validate required arguments for full pipeline execution
+    if args.input:
+        if not os.path.exists(args.input):
+            print(f"❌ Error: Input file '{args.input}' not found")
+            sys.exit(1)
+
+        # Run main pipeline with comprehensive error handling
+        try:
+            print(f"🚀 Starting full pipeline with input: {args.input}")
+            print(f"🔄 Force recheck: {'Yes' if args.force_recheck else 'No (using cache)'}")
+            print(f"⏱️ Configuration: 30-second samples, 1 video per user")
+            main(args.input, args.force_recheck)
+        except KeyboardInterrupt:
+            print("\n\n⏹️ Pipeline interrupted by user (Ctrl+C)")
+            print("💾 All progress has been saved and can be resumed")
+            print("🔄 Run individual stages to continue from where you left off")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n❌ Pipeline failed with error: {e}")
+            print("💡 Check your configuration and try individual stages for debugging")
+            print("📋 Use --show-log to see processed accounts")
+            print("🔍 Use --show-snapshots to see snapshot history")
+            sys.exit(1)
+
+    else:
+        # NO ARGUMENTS PROVIDED - Show help
+        print("❌ No action specified.")
+        print("💡 Use --input FILE for full pipeline or --stage1-only FILE to start")
+        print("📖 Use --help-detailed for complete usage guide")
+        print("\n🎯 Quick start examples:")
+        print("  python main_pipeline.py --input usernames.csv")
+        print("  python main_pipeline.py --stage6-only output/5_confirmed_voice.csv")
+        print("  python main_pipeline.py --show-log")
+        print("\n⏱️ Current configuration: 30-second samples, 1 video per user")
+        sys.exit(1)
