@@ -150,3 +150,15 @@ python main_pipeline.py --help-detailed
 
  Use Your Existing Audio Links File
 python run_stage5_only.py --input output/4_snapshot_s_meb9udmcf8hu9g5yv_audio_links.csv
+
+
+# Step by step execution
+python main_pipeline.py --stage1-only usernames.csv
+python main_pipeline.py --stage2-only output/1_existing_accounts.csv
+python main_pipeline.py --stage3-only snap_12345
+python main_pipeline.py --stage4-only output/3_snapshot_snap_12345_external_links.csv
+python main_pipeline.py --stage5-only output/4_snapshot_snap_12345_audio_links.csv
+
+# Check progress anytime
+python main_pipeline.py --show-log
+python main_pipeline.py --show-snapshots
