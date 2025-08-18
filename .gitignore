@@ -168,8 +168,6 @@ usernames.txt
 existing_accounts.csv
 all_accounts_report.csv
 *_usernames.*
-*_accounts.*
-*_report.*
 
 # Logs
 *.log

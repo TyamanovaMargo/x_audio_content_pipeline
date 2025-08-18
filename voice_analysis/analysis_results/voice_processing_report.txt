@@ -1,0 +1,56 @@
+🎤 ADVANCED VOICE PROCESSING REPORT
+============================================================
+
+Generated: 2025-08-17 16:46:13
+Total files processed: 4
+Voice-only files created: 4
+Processing method: Voice Activity Detection + Speech Recognition
+Output directory: voice_analysis/voice_only_audio
+
+🎯 PROCESSING STRATEGY:
+1. Voice Activity Detection (VAD) - Identify voice segments
+2. Speech Recognition Analysis - Verify speech content
+3. Music/Voice Separation - Extract voice-only segments
+4. Segment Combination - Merge voice segments
+5. Quality Verification - Final quality check
+
+📊 PROCESSING STATISTICS:
+Success rate: 4/4 (100.0%)
+Total voice duration extracted: 178.0 seconds
+Average voice segments per file: 5.5
+Average voice duration per file: 44.5s
+
+✅ SUCCESSFULLY PROCESSED FILES:
+----------------------------------------
+ 1. laurelinartistry_youtube_1755435951.mp3
+    👤 User: @laurelinartistry
+    🔗 Platform: ['laurelinartistry', 'youtube', '1755435951']
+    ⏱️ Voice Duration: 94.0s
+    📊 Voice Segments: 9
+    💬 Speech: "when are the fun little details in the lord of the delightfu..."
+    📁 Voice File: laurelinartistry_['laurelinartistry', 'youtube', '1755435951']_voice_only_1755438184.wav
+
+ 2. foxtrot44_twitch_1755436085.mp3
+    👤 User: @foxtrot44
+    🔗 Platform: ['foxtrot44', 'twitch', '1755436085']
+    ⏱️ Voice Duration: 42.0s
+    📊 Voice Segments: 5
+    💬 Speech: "all right hey y'all how's it going happy Friday G hello PHP ..."
+    📁 Voice File: foxtrot44_['foxtrot44', 'twitch', '1755436085']_voice_only_1755438262.wav
+
+ 3. gtjio123_twitch_1755435922.mp3
+    👤 User: @gtjio123
+    🔗 Platform: ['gtjio123', 'twitch', '1755435922']
+    ⏱️ Voice Duration: 14.0s
+    📊 Voice Segments: 6
+    💬 Speech: "good my chat I'm curious what my ping will be while streamin..."
+    📁 Voice File: gtjio123_['gtjio123', 'twitch', '1755435922']_voice_only_1755438320.wav
+
+ 4. laurelinartistry_youtube_1755435532.mp3
+    👤 User: @laurelinartistry
+    🔗 Platform: ['laurelinartistry', 'youtube', '1755435532']
+    ⏱️ Voice Duration: 28.0s
+    📊 Voice Segments: 2
+    💬 Speech: "when are the fun little details in the lord of the delightfu..."
+    📁 Voice File: laurelinartistry_['laurelinartistry', 'youtube', '1755435532']_voice_only_1755438368.wav
+
