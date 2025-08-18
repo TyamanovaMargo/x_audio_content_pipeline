@@ -1,165 +1,153 @@
-# X/Twitter Audio Content Pipeline
+# Voice Extraction Pipeline
 
-A full-featured pipeline for validating X/Twitter accounts, collecting profile data through Bright Data API, extracting external links, and filtering for audio/video platforms with potential voice content such as YouTube, Spotify, TikTok, Twitch, etc.
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
----
+## Overview
 
-## 📌 Pipeline Overview
+This project is a comprehensive Python-based pipeline designed to process X/Twitter usernames, validate accounts, collect profile data using Bright Data, extract external links, filter for audio content from platforms like YouTube and Twitch, detect and verify voice content, extract audio samples, and perform advanced voice processing to isolate voice-only segments.
 
-**Stages:**
-1. **Account Validation** — Check if accounts exist using Playwright web scraping  
-2. **Bright Data Integration** — Create snapshots containing **only validated accounts**  
-3. **Data Download** — Retrieve Bright Data snapshot results and extract external links  
-4. **Audio Link Filtering** — Keep only links from audio/video platforms  
-5. **Snapshot Tracking** — Save metadata for each snapshot, its accounts, and results  
-6. **Results Saving** — All outputs saved in a structured `output/` folder
+The pipeline is modular, with each step building on the previous one to automate the extraction of high-quality voice samples from social media profiles. It includes duplicate prevention, logging, and reporting features for efficient data management.
 
----
+Key goals:
+- Validate and filter valid X/Twitter accounts.
+- Collect profile data while avoiding redundant snapshots.
+- Focus on voice-centric content from linked YouTube/Twitch channels.
+- Extract and process voice samples for further analysis (e.g., AI voice modeling).
 
-## 📂 Project Structure
+**Note:** This pipeline requires external dependencies like Bright Data API access, yt-dlp for downloads, ffmpeg for audio processing, and Playwright for web scraping. Ensure you comply with all platform terms of service and data usage policies.
 
-x-audio-content-pipeline/
-├── main_pipeline.py # Main orchestrator with snapshot tracking
-├── step1_validate_accounts.py # Stage 1 - account validation
-├── step2_bright_data_trigger.py # Stage 2 - create Bright Data snapshot
-├── step3_bright_data_download.py # Stage 3 - snapshot download & link extraction
-├── step4_audio_filter.py # Stage 4 - filter for audio platforms
-├── snapshot_manager.py # Manage snapshot metadata & registry
-├── utils/
-│ ├── checker_web.py # Playwright-based account checker
-│ ├── io_utils.py # Read/write files, handle logs
-│ ├── username_utils.py # Username parsing & normalization
-├── config.py # Pipeline configuration
-├── requirements.txt # Dependencies
-├── output/
-│ ├── 1_existing_accounts.csv
-│ ├── 2_snapshot_results.csv
-│ ├── 3_external_links.csv
-│ ├── 4_audio_links_.csv
-│ └── snapshots/
-│ ├── snapshot_registry.json
-│ ├── s_metadata.json
-│ └── s*_accounts.csv
-└── README.md
+## Features
+
+- **Account Validation:** Checks if X/Twitter accounts exist using web scraping.
+- **Snapshot Management:** Tracks and reuses Bright Data snapshots to prevent duplicates.
+- **Data Collection:** Triggers and downloads profile data via Bright Data API.
+- **Link Extraction & Filtering:** Identifies and filters external links to YouTube and Twitch.
+- **Audio & Voice Detection:** Detects audio content and verifies voice presence (e.g., podcasts, streams).
+- **Sample Extraction:** Downloads short audio samples with filename including username and source.
+- **Advanced Voice Processing:** Uses VAD (Voice Activity Detection) and speech recognition to extract voice-only segments.
+- **Logging & Reporting:** Maintains logs, summaries, and reports for snapshots and extractions.
+- **Concurrency & Delays:** Built-in delays and concurrency limits to avoid rate limiting.
+
+## Requirements
+
+- **Python:** 3.8 or higher.
+- **Libraries:** Install via `pip install -r requirements.txt` (create this file with the following):
+
+git clone https://github.com/your-repo/voice-extraction-pipeline.git
+cd voice-extraction-pipeline
 
 
----
-
-## 🛠 Installation
-
-Clone repo
-
-git clone <your-repo-url>
-cd x-audio-content-pipeline
-Install dependencies
-
+2. Install Python dependencies:
 pip install -r requirements.txt
-Install Playwright browsers
-
-playwright install chromium
 
 
-Create a `.env` file with:
+3. Install external tools:
+- Install ffmpeg: Download from official site or use package manager (e.g., `brew install ffmpeg` on macOS, `apt install ffmpeg` on Ubuntu).
+- Install yt-dlp: `pip install yt-dlp`.
+- Install Playwright browsers: `playwright install`.
 
+4. Set up configuration:
+- Create a `.env` file or set environment variables for Bright Data:
+  ```
+  BRIGHT_DATA_TOKEN=your_api_token
+  BRIGHT_DATA_DATASET_ID=your_dataset_id
+  ```
+
+## Usage
+
+The pipeline is divided into sequential steps. Run them in order, or integrate into a main script. Outputs from one step feed into the next (e.g., via CSV files).
+
+### Step 1: Validate Accounts
+Validate usernames from an input file and output valid accounts.
+python step1_validate_accounts.py --input usernames.txt --output validated_accounts.csv
+
+- Options: `--force-recheck` to reprocess all, `--max-accounts N` to limit processing.
+
+### Step 2: Manage & Trigger Snapshots
+Use SnapshotManager to check for duplicates and trigger Bright Data snapshots.
+- Integrate with `step2_bright_data_trigger.py` for API calls.
+
+### Step 3: Download Snapshot Data
+Download data from Bright Data snapshots.
+python step3_bright_data_download.py --snapshot-id YOUR_SNAPSHOT_ID
+
+
+### Step 4: Filter Audio Links
+Filter extracted links to YouTube/Twitch.
+- Use `step4_audio_filter.py` on downloaded data.
+
+### Step 4.5: Detect Audio Content
+Detect if links contain audio.
+- Run `step4_5_audio_detector.py`.
+
+### Step 5: Verify Voice Content
+Verify presence of voice (e.g., speech vs. music).
+- Run `step5_voice_verification.py`.
+
+### Step 6: Extract Voice Samples
+Extract MP3 samples from confirmed voice links.
+python step6_voice_sample_extractor.py --input confirmed_voice.csv --output-dir voice_samples --duration 120 --quality 192
+
+- Generates samples in `voice_samples/` with filenames like `username_source_timestamp.mp3`.
+- Options: `--list-files`, `--clean-temp` for maintenance.
+
+### Step 7: Advanced Voice Processing
+Process extracted samples to isolate voice-only audio.
+python step7_advanced_voice_processor.py voice_samples/ --output-dir voice_analysis
+
+- Outputs voice-only WAV files in `voice_analysis/voice_only_audio/`.
+- Generates reports and CSV results.
+
+### Full Pipeline Example
+Create a main.py to chain steps, e.g.:
+Pseudocode
+
+validated = validate_accounts('usernames.txt')
+snapshot_id = trigger_snapshot(validated)
+data = download_snapshot(snapshot_id)
+links = extract_links(data)
+audio_links = filter_audio(links)
+voice_links = verify_voice(audio_links)
+samples = extract_samples(voice_links)
+processed = process_voice(samples)
+
+
+## Configuration
+
+- **Output Directories:** Defaults to `output/`, `voice_samples/`, `voice_analysis/`. Customize via CLI args.
+- **Delays & Concurrency:** Adjustable in classes (e.g., `AccountValidator` for min/max delays).
+- **API Tokens:** Store securely in environment variables.
+- **Logging:** Processed logs saved as JSON (e.g., `processed_accounts.json`).
+
+## File Structure
+
+- `snapshot_manager.py`: Manages Bright Data snapshots.
+- `step1_validate_accounts.py`: Account validation.
+- `step2_bright_data_trigger.py`: Snapshot triggering.
+- `step3_bright_data_download.py`: Data downloading.
+- `step4_audio_filter.py`: Audio platform filtering.
+- `step4_5_audio_detector.py`: Audio detection.
+- `step5_voice_verification.py`: Voice verification.
+- `step6_voice_sample_extractor.py`: Sample extraction.
+- `step7_advanced_voice_processor.py`: Voice processing.
+- Utilities: `checker_web.py` (web checker), `io_utils.py` (I/O helpers), `username_utils.py` (username handling).
+
+## Troubleshooting
+
+- **Timeouts/Errors:** Increase delays or reduce concurrency.
+- **Dependencies Missing:** Ensure ffmpeg and yt-dlp are in PATH.
+- **API Issues:** Verify Bright Data token and dataset ID.
+- **No Voice Detected:** Adjust confidence thresholds in processors.
+
+## Contributing
+
+Pull requests welcome! For major changes, open an issue first.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 📊 Input Formats
-
-**CSV:**
-username
-elonmusk
-naval
-
----
-
-## 🚀 Running the Pipeline
-
-### Full Run
-python main_pipeline.py --input usernames.csv --output-dir output/
-
-
-### With Account Limit
-python main_pipeline.py --input usernames.csv --max-accounts 50
-
-
-### List Snapshots
-python main_pipeline.py --list-snapshots
-
-
----
-
-## 📈 Outputs
-
-- `1_existing_accounts.csv` — Validated accounts  
-- `2_snapshot_*_results.csv` — Full Bright Data profile data  
-- `3_external_links_*.csv` — Extracted external links  
-- `4_audio_links_*.csv` — Filtered audio/video platform links  
-- `output/snapshots/` — Metadata & account lists for each snapshot  
-- `pipeline_summary.json` — Summary stats for last run  
-
----
-
-## 🎵 Platforms Detected
-
-**High:** Spotify, SoundCloud, Apple Music, Apple Podcasts, Anchor  
-**Medium:** YouTube, Twitch, TikTok  
-**Low:** Instagram, Discord, Kick
-
----
-
-# Launch in stages (for example, for debugging)
-
-Account verification only:
-python step1_validate_accounts.py --input usernames.csv --output output/1_existing_accounts.csv
-
-Create snapshot directly:
-python step2_bright_data_trigger.py --usernames output/1_existing_accounts.csv
-
-Downloading snapshot data:
-python step3_bright_data_download.py --snapshot-id s_abc123
-
-Filtering already collected links:
-python step4_audio_filter.py --input output/3_snapshot_s_abc123_external_links.csv --output output/4_snapshot_s_abc123_audio_links.csv
-
-
-# Standard execution
-python main_pipeline.py --input usernames.csv
-
-# Management commands  
-python main_pipeline.py --show-log
-python main_pipeline.py --show-snapshots
-python main_pipeline.py --analyze-duplicates
-python main_pipeline.py --help-detailed
-
-
-📄 Complete Output Files:
-
-    1_existing_accounts.csv - Validated accounts
-
-    2_snapshot_<id>_results.csv - Full profile data
-
-    3_snapshot_<id>_external_links.csv - All external links
-
-    4_snapshot_<id>_audio_links.csv - Audio platform links
-
-    5_snapshot_<id>_verified_voice.csv - All verification results
-
-    5_snapshot_<id>_confirmed_voice.csv - 🎙️ FINAL VOICE CONTENT RESULTS
-
-
- Use Your Existing Audio Links File
-python run_stage5_only.py --input output/4_snapshot_s_meb9udmcf8hu9g5yv_audio_links.csv
-
-
-# Step by step execution
-python main_pipeline.py --stage1-only usernames.csv
-python main_pipeline.py --stage2-only output/1_existing_accounts.csv
-python main_pipeline.py --stage3-only snap_12345
-python main_pipeline.py --stage4-only output/3_snapshot_snap_12345_external_links.csv
-python main_pipeline.py --stage5-only output/4_snapshot_snap_12345_audio_links.csv
-
-python main_pipeline.py --stage6-only output/5_snapshot_123_confirmed_voice.csv
-# Check progress anytime
-python main_pipeline.py --show-log
-python main_pipeline.py --show-snapshots
+*Generated on Monday, August 18, 2025.*
