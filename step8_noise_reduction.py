@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Tuple
 import time
 import argparse
 
+
 class NoiseReducer:
     """
     Step 8: Background noise reduction for voice samples.
@@ -23,7 +24,7 @@ class NoiseReducer:
         highpass_hz: int = 80,
         lowpass_hz: int = 6000,
         afftdn_nr: float = 24.0,
-        afftdn_nf: float = 12.0,
+        afftdn_nf: float = -40.0,  # FIXED: Changed from 12.0 to -40.0
         timeout: int = 120
     ):
         self.output_dir = output_dir
@@ -33,7 +34,7 @@ class NoiseReducer:
         self.highpass_hz = highpass_hz
         self.lowpass_hz = lowpass_hz
         self.afftdn_nr = afftdn_nr  # Noise reduction dB
-        self.afftdn_nf = afftdn_nf  # Noise floor dB
+        self.afftdn_nf = afftdn_nf  # Noise floor dB (MUST BE NEGATIVE)
         self.timeout = timeout
 
         self.denoised_dir = os.path.join(output_dir, "denoised_audio")
@@ -48,6 +49,7 @@ class NoiseReducer:
         print("🎛️ NoiseReducer initialized")
         print(f"📁 Output denoised dir: {self.denoised_dir}")
         print(f"⚙️ Mode: {self.mode}")
+        print(f"🔧 Noise floor (nf): {self.afftdn_nf} dB")
 
     def process_directory(self, input_dir: str) -> List[Dict]:
         """
@@ -140,7 +142,16 @@ class NoiseReducer:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout)
             if result.returncode != 0:
-                return False, f"ffmpeg_error: {result.stderr[:200]}"
+                # Print the FULL stderr to see the actual error
+                print("=== FFMPEG FULL ERROR OUTPUT ===")
+                print(result.stderr)
+                print("=== END FFMPEG ERROR ===")
+                
+                # Also show the command that failed
+                print(f"Command that failed: {' '.join(cmd)}")
+                
+                # Return the last part of stderr which likely contains the real error
+                return False, f"ffmpeg_error: {result.stderr[-500:]}"
             if not os.path.exists(output_file) or os.path.getsize(output_file) < 8000:
                 return False, "output_file_invalid_or_too_small"
             return True, "ok"
@@ -150,6 +161,7 @@ class NoiseReducer:
             return False, "ffmpeg_not_installed"
         except Exception as e:
             return False, f"exception: {str(e)[:120]}"
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Step 8 - Background Noise Reduction")
@@ -161,7 +173,7 @@ if __name__ == "__main__":
     parser.add_argument("--highpass", type=int, default=80, help="Highpass cutoff Hz")
     parser.add_argument("--lowpass", type=int, default=6000, help="Lowpass cutoff Hz")
     parser.add_argument("--nr", type=float, default=24.0, help="afftdn noise reduction dB")
-    parser.add_argument("--nf", type=float, default=12.0, help="afftdn noise floor dB")
+    parser.add_argument("--nf", type=float, default=-40.0, help="afftdn noise floor dB (MUST BE NEGATIVE)")
     args = parser.parse_args()
 
     reducer = NoiseReducer(
