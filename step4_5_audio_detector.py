@@ -13,55 +13,54 @@ class AudioContentDetector:
         })
 
     def detect_audio_content(self, audio_links: List[Dict]) -> List[Dict]:
-        """Detect audio in YouTube and Twitch links only"""
-        
         if not audio_links:
             print("🔍 No audio links to detect")
             return []
-
-        print(f"🎵 Starting YouTube & Twitch audio detection for {len(audio_links)} links...")
-        
+        print(f"🎵 Starting YouTube, Twitch & TikTok audio detection for {len(audio_links)} links...")
         audio_detected_links = []
-        
         for i, link_data in enumerate(audio_links, 1):
             url = link_data.get('url', '')
-            username = link_data.get('username', 'unknown')
             platform = link_data.get('platform_type', 'unknown')
-            
             if not url:
                 continue
-                
-            print(f"🔍 [{i}/{len(audio_links)}] {platform.upper()} check {username}: {url[:50]}...")
-            
+            print(f"🔍 [{i}/{len(audio_links)}] {platform.upper()} check: {url[:50]}...")
             if platform == 'youtube':
                 audio_result = self._detect_youtube_audio(url)
             elif platform == 'twitch':
                 audio_result = self._detect_twitch_audio(url)
+            elif platform == 'tiktok':
+                audio_result = self._detect_tiktok_audio(url)
             else:
-                continue  # Пропускаем неподдерживаемые платформы
-            
-            # Add audio detection results
+                continue
             link_data.update({
                 'has_audio': audio_result['has_audio'],
                 'audio_confidence': audio_result['confidence'],
                 'audio_type': audio_result.get('audio_type'),
                 'detection_status': audio_result['status']
             })
-            
             if audio_result['has_audio']:
                 audio_detected_links.append(link_data)
-            
-            time.sleep(0.5)  # Небольшая задержка
-        
-        confirmed_audio = len(audio_detected_links)
-        
-        print(f"\n🎵 YouTube & Twitch audio detection completed!")
-        print(f"📊 Total links checked: {len(audio_links)}")
-        print(f"✅ Audio content found: {confirmed_audio}")
-        print(f"❌ No audio detected: {len(audio_links) - confirmed_audio}")
-        
+            time.sleep(0.5)
         return audio_detected_links
 
+    def _detect_tiktok_audio(self, url: str) -> dict:
+        # TikTok videos почти всегда содержат аудио-трек (музыка/голос)
+        try:
+            # Можно ещё добавить простейший GET и проверку по содержимому, если хочется подробности
+            return {
+                'has_audio': True,
+                'confidence': 'high',
+                'audio_type': 'tiktok_default',
+                'status': 'tiktok_audio_assumed'
+            }
+        except Exception as e:
+            return {
+                'has_audio': True,
+                'confidence': 'medium',
+                'audio_type': 'tiktok_default',
+                'status': f'tiktok_error_assumed_audio: {str(e)}'
+            }
+            
     def _detect_youtube_audio(self, url: str) -> Dict:
         """Enhanced YouTube audio detection"""
         try:

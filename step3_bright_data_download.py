@@ -2,6 +2,7 @@ import requests
 import time
 import json
 from typing import List, Dict
+import re
 
 class BrightDataDownloader:
     def __init__(self, api_token: str):
@@ -234,4 +235,107 @@ class BrightDataDownloader:
                 })
         
         print(f"🔗 Extracted {len(external_links)} external links from {len(profiles)} profiles")
+        return external_links
+ 
+    def extract_external_links(self, profiles: List[Dict]) -> List[Dict]:
+        """Extract external links from profiles with enhanced debugging"""
+        if not profiles:
+            return []
+            
+        external_links = []
+        
+        # Добавим счетчики для отладки
+        total_profiles = len(profiles)
+        skipped_no_profile = 0
+        skipped_no_username = 0
+        skipped_no_links = 0
+        processed_profiles = 0
+        
+        for i, profile in enumerate(profiles):
+            if not profile:  # Skip if profile is None
+                skipped_no_profile += 1
+                continue
+            
+            # Отладка: показать первые несколько профилей
+            if i < 3:
+                print(f"🔍 Profile {i} keys: {list(profile.keys())}")
+            
+            # Попробуем разные варианты полей для username
+            username_candidates = [
+                profile.get('username'),
+                profile.get('screen_name'),
+                profile.get('handle'),
+                profile.get('user_name'),
+                profile.get('account_name'),
+                profile.get('name'),
+                profile.get('display_name')
+            ]
+            
+            username = None
+            for candidate in username_candidates:
+                if candidate and str(candidate).strip():
+                    username = str(candidate).strip()
+                    break
+            
+            # Если username все еще пустой, попробуем ID
+            if not username:
+                user_id = profile.get('id') or profile.get('user_id') or profile.get('profile_id')
+                if user_id:
+                    username = str(user_id)  # Убираем префикс "user_" здесь тоже
+                else:
+                    print(f"⚠️ Profile {i} has no username/ID: {list(profile.keys())[:5]}")
+                    skipped_no_username += 1
+                    continue
+            
+            # Убираем префикс "user_" из username если он есть[107][108]
+            if username.startswith("user_"):
+                username = username.removeprefix("user_")  # Для Python 3.9+
+                # Альтернатива для старых версий Python:
+                # username = username[5:] if username.startswith("user_") else username
+            
+            # Search for external links in various fields
+            link_fields = ['external_link', 'url', 'website', 'profile_external_link', 'bio_link', 'link']
+            
+            found_link = None
+            for field in link_fields:
+                link = profile.get(field)
+                
+                if link is None:
+                    link = ''
+                else:
+                    link = str(link).strip()
+                
+                if link and link.startswith('http'):
+                    found_link = link
+                    break
+            
+            if found_link:
+                description = profile.get('description')
+                bio = description[:100] if description else ''
+                
+                external_links.append({
+                    'username': username,  # Теперь без префикса "user_"
+                    'profile_name': profile.get('profile_name') or profile.get('name') or profile.get('display_name') or '',
+                    'url': found_link,
+                    'followers': profile.get('followers', 0),
+                    'bio': bio
+                })
+                processed_profiles += 1
+            else:
+                skipped_no_links += 1
+        
+        # Подробная статистика
+        print(f"📊 Processing Summary:")
+        print(f"   Total profiles: {total_profiles}")
+        print(f"   Skipped (no profile data): {skipped_no_profile}")
+        print(f"   Skipped (no username): {skipped_no_username}")
+        print(f"   Skipped (no external links): {skipped_no_links}")
+        print(f"   Successfully processed: {processed_profiles}")
+        print(f"🔗 Extracted {len(external_links)} external links")
+        
+        # Показать примеры найденных username
+        if external_links:
+            sample_usernames = [link['username'] for link in external_links[:5]]
+            print(f"📝 Sample usernames: {sample_usernames}")
+        
         return external_links

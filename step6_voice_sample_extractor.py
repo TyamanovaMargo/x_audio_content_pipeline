@@ -177,30 +177,39 @@ class VoiceSampleExtractor:
         return word_count >= 1 or space_count >= 2 or comma_count >= 1
 
     def _extract_username_from_url(self, url: str) -> str:
-        """Extract username from YouTube or Twitch URL"""
-        
         if not url:
             return None
-            
         try:
-            # Clean URL
             url = url.strip()
-            
             if 'youtube.com' in url or 'youtu.be' in url:
                 return self._extract_youtube_username(url)
             elif 'twitch.tv' in url:
                 return self._extract_twitch_username(url)
+            elif 'tiktok.com' in url or 'vm.tiktok.com' in url or 'm.tiktok.com' in url:
+                return self._extract_tiktok_username(url)
             else:
-                # Try generic URL parsing
                 parsed = urlparse(url)
                 path_parts = [p for p in parsed.path.split('/') if p]
                 if path_parts:
                     return path_parts[-1][:20]
-        
         except Exception as e:
-            print(f"  ⚠️ Error extracting from URL: {e}")
-            
+            print(f" ⚠️ Error extracting from URL: {e}")
         return None
+
+    def _extract_tiktok_username(self, url: str) -> str:
+        patterns = [
+            r'tiktok\.com/@([^/?]+)',
+            r'vm\.tiktok\.com/([^/?]+)',
+            r'm\.tiktok\.com/@([^/?]+)'
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                username = match.group(1)
+                if username and not username.startswith('video'):
+                    return username[:20]
+        return None
+
 
     def _extract_youtube_username(self, url: str) -> str:
         """Extract username from YouTube URL"""
@@ -276,26 +285,67 @@ class VoiceSampleExtractor:
         return filename
 
     def _extract_audio_sample(self, url: str, filename: str, platform: str, nickname: str) -> Dict:
-        """Extract audio sample from URL with nickname and source in filename"""
-        
         output_path = os.path.join(self.output_dir, f"{filename}.mp3")
-        
         try:
             if platform == 'youtube':
                 return self._extract_youtube_sample(url, output_path, nickname)
             elif platform == 'twitch':
                 return self._extract_twitch_sample(url, output_path, nickname)
+            elif platform == 'tiktok':
+                return self._extract_tiktok_sample(url, output_path, nickname)
             else:
-                return {
-                    'success': False,
-                    'status': f'unsupported_platform: {platform}'
-                }
-                
+                return {'success': False, 'status': f'unsupported_platform: {platform}'}
         except Exception as e:
-            return {
-                'success': False,
-                'status': f'extraction_error_for_{nickname}: {str(e)[:100]}'
-            }
+            return {'success': False, 'status': f'extraction_error_for_{nickname}: {str(e)[:100]}'}
+
+    def _extract_tiktok_sample(self, url: str, output_path: str, nickname: str) -> dict:
+    # Абсолютно такая же схема вызова yt-dlp, как для YouTube
+        quality_options = [
+            (self.quality, 180),
+            ("128", 120),
+            ("96", 90),
+            ("64", 60)
+        ]
+        for quality, timeout in quality_options:
+            try:
+                print(f" 🎧 Trying TikTok {quality} kbps (timeout: {timeout}s)")
+                cmd = [
+                    'yt-dlp',
+                    '--extract-audio',
+                    '--audio-format', 'mp3',
+                    '--audio-quality', quality,
+                    '--postprocessor-args', f'ffmpeg:-t {self.sample_duration}',
+                    '--output', output_path.replace('.mp3', '.%(ext)s'),
+                    '--quiet',
+                    '--no-warnings',
+                    '--ignore-errors',
+                    '--fragment-retries', '3',
+                    '--retries', '3',
+                    '--max-filesize', '50M',
+                    url
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                if result.returncode == 0 and os.path.exists(output_path):
+                    return {
+                        'success': True,
+                        'file_path': output_path,
+                        'status': f'tiktok_success_{nickname}_quality_{quality}'
+                    }
+                else:
+                    print(f" ⚠️ Quality {quality} failed, trying next...")
+            except subprocess.TimeoutExpired:
+                print(f" ⏰ Timeout at {quality} kbps, trying lower quality...")
+                continue
+            except FileNotFoundError:
+                return {'success': False, 'status': 'yt-dlp_not_installed'}
+            except Exception as e:
+                print(f" ❌ Error at {quality}: {str(e)[:50]}")
+                continue
+        return {
+            'success': False,
+            'status': f'tiktok_failed_all_qualities_{nickname}'
+        }
+
 
     def _extract_youtube_sample(self, url: str, output_path: str, nickname: str) -> Dict:
         """Extract audio sample from YouTube using yt-dlp with improved error handling"""
