@@ -60,7 +60,7 @@ The pipeline is divided into sequential steps. Run them in order, or integrate i
 
 ### Step 1: Validate Accounts
 Validate usernames from an input file and output valid accounts.
-python step1_validate_accounts.py --input usernames.txt --output validated_accounts.csv
+python step1_validate_accounts.py --input sample_usernames.csv --output validated_accounts.csv
 
 - Options: `--force-recheck` to reprocess all, `--max-accounts N` to limit processing.
 
