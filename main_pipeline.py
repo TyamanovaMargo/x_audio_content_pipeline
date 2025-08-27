@@ -230,15 +230,16 @@ def main(input_file, force_recheck=False):
         confirmed_voice = []  # Ensure it's an empty list for Stage 6
 
     # Stage 6: Voice Sample Extraction (30-second samples)
-    print("\n🎤 STAGE 6: Voice Sample Extraction (30s samples)")
+    print("\n🎤 STAGE 6: Voice Sample Extraction ")
     print("-" * 60)
 
     if confirmed_voice:
         sample_extractor = VoiceSampleExtractor(
-            output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_samples"),
-            sample_duration=30,   # 30 seconds
-            quality="192"         # 192 kbps
+            output_dir="voice_samples",
+            max_duration_hours=1,  # Максимум 1 час
+            quality="192"
         )
+
         
         extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
         
@@ -736,12 +737,15 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print("❌ No confirmed voice links found in file")
         return
     
-    # Extract voice samples
+    
     sample_extractor = VoiceSampleExtractor(
         output_dir=os.path.join(output_dir, "voice_samples"),
-        sample_duration=30,   # 30 seconds
-        quality="192"
-    )
+        max_duration_hours=1, 
+        quality="192",
+        min_duration=30,    
+        max_duration=3600     
+        )
+
     
     extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
     
