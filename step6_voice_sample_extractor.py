@@ -411,6 +411,13 @@ class VoiceSampleExtractor:
             '--socket-timeout', '60',
             url
         ]
+        if 'tiktok.com' in url:
+            cmd.extend([
+                '--extractor-args', 'tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com',
+                '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X)',
+                '--sleep-interval', '2',  # Пауза между запросами
+                '--retries', '5'          # Больше попыток (заменит предыдущий --retries)
+    ])
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             if result.returncode == 0 and os.path.exists(output_path):
@@ -429,6 +436,25 @@ class VoiceSampleExtractor:
 
     def _check_video_duration(self, url: str) -> Dict:
         """Check video duration before processing"""
+        
+        # Пропустить проверку для профилей и каналов
+        skip_patterns = [
+            'tiktok.com/@',           # TikTok профили  
+            'youtube.com/@',          # YouTube каналы @username
+            '/channel/',              # YouTube каналы /channel/
+            '/user/',                 # YouTube каналы /user/
+            '/c/',                    # YouTube каналы /c/
+            'twitch.tv/' + '/' not in url.split('twitch.tv/')[-1]  # Twitch каналы
+        ]
+        
+        if any(pattern in url for pattern in skip_patterns[:5]):
+            return {
+                'duration': 0,
+                'title': 'Profile/Channel',
+                'valid': True,  # ← Разрешить обработку
+                'reason': 'profile_channel_skip'
+            }
+        
         try:
             cmd = [
                 'yt-dlp',
@@ -436,31 +462,37 @@ class VoiceSampleExtractor:
                 '--no-download',
                 '--quiet',
                 '--no-warnings',
-                '--socket-timeout', '15',
+                '--socket-timeout', '60',  # ← Увеличить таймаут
                 url
             ]
-            timeout = 20
+            timeout = 90  # ← Увеличить общий таймаут
+            
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            
             if result.returncode == 0 and result.stdout.strip():
                 info = json.loads(result.stdout)
                 duration = info.get('duration', 0)
                 title = info.get('title', 'Unknown')
                 is_valid = self.min_duration <= duration <= self.max_duration
+
                 return {
                     'duration': duration,
                     'title': title,
                     'valid': is_valid,
                     'reason': 'valid' if is_valid else
-                              'too_short' if duration < self.min_duration else 'too_long'
+                            'too_short' if duration < self.min_duration else 'too_long'
                 }
+
         except Exception as e:
             self.logger.error(f"Error checking duration: {e}")
+
         return {
             'duration': 0,
             'title': 'Unknown',
             'valid': False,
             'reason': 'check_failed'
         }
+
 
 
 
