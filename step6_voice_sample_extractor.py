@@ -7,8 +7,10 @@ from typing import List, Dict
 from urllib.parse import urlparse
 import pandas as pd
 import logging
-from tqdm import tqdm  
-
+from tqdm import tqdm
+import threading
+import queue
+import signal
 
 class VoiceSampleExtractor:
     def __init__(self, output_dir="voice_samples", max_duration_hours=1, quality="192", min_duration=30, max_duration=3600):
