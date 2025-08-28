@@ -235,10 +235,12 @@ def main(input_file, force_recheck=False):
 
     if confirmed_voice:
         sample_extractor = VoiceSampleExtractor(
-            output_dir="voice_samples",
-            max_duration_hours=1,  # Максимум 1 час
+            output_dir=os.path.join(output_dir, "voice_samples"),
+            min_duration=30,
+            max_duration=3600,
             quality="192"
         )
+
 
         
         extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
@@ -739,8 +741,7 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
     
     
     sample_extractor = VoiceSampleExtractor(
-        output_dir=os.path.join(output_dir, "voice_samples"),
-        max_duration_hours=1, 
+        output_dir=os.path.join(output_dir, "voice_samples"), 
         quality="192",
         min_duration=30,    
         max_duration=3600     
