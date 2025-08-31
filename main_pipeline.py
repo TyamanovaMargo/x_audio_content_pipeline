@@ -1,8 +1,8 @@
-
 import os
 import pandas as pd
 import argparse
 import sys
+
 from config import Config
 from step1_validate_accounts import AccountValidator
 from step2_bright_data_trigger import BrightDataTrigger
@@ -13,24 +13,23 @@ from step5_voice_verification import VoiceContentVerifier
 from step6_voice_sample_extractor import VoiceSampleExtractor
 from step7_advanced_voice_processor import AdvancedVoiceProcessor
 from step8_noise_reduction import NoiseReducer
+from step9_speaker1_extractor import SpeakerOneExtractor
 from snapshot_manager import SnapshotManager
 
 def main(input_file, force_recheck=False):
-    """Main pipeline execution - YouTube, Twitch & TikTok Voice Content Pipeline (8 stages with noise reduction)"""
+    """Main pipeline execution - YouTube, Twitch & TikTok Voice Content Pipeline (9 stages with corrected order)"""
     cfg = Config()
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
     print("🎙️ YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE")
     print("=" * 60)
     print("🎯 Focus: YouTube, Twitch, and TikTok voice content extraction")
-    print("🎤 Output: voice samples → noise reduction → voice-only filtering")
-    print("🔍 Stages: 8 comprehensive processing stages (with noise reduction)")
-
+    print("🎤 Output: voice samples → voice-only filtering → noise reduction → speaker extraction")
+    print("🔍 Stages: 9 comprehensive processing stages (corrected order: 6→7→8→9)")
 
     # Stage 1: Account Validation with Persistent Logging
     print("\n✅ STAGE 1: Account Validation with Persistent Logging")
     print("-" * 60)
-
     log_file = os.path.join(cfg.OUTPUT_DIR, "processed_accounts.json")
     validator = AccountValidator(
         max_concurrent=cfg.MAX_CONCURRENT_VALIDATIONS,
@@ -51,7 +50,6 @@ def main(input_file, force_recheck=False):
     # Stage 2: Bright Data Snapshot Management with Duplicate Prevention
     print("\n🚀 STAGE 2: Bright Data Snapshot Management")
     print("-" * 60)
-
     trigger = BrightDataTrigger(cfg.BRIGHT_DATA_API_TOKEN, cfg.BRIGHT_DATA_DATASET_ID)
     usernames = [acc['username'] for acc in valid_accounts]
 
@@ -76,7 +74,6 @@ def main(input_file, force_recheck=False):
     # Stage 3: Data Download & External Link Extraction
     print("\n⬇️ STAGE 3: Data Download & External Link Extraction")
     print("-" * 60)
-
     downloader = BrightDataDownloader(cfg.BRIGHT_DATA_API_TOKEN)
     profiles = downloader.wait_and_download_snapshot(snapshot_id, cfg.MAX_SNAPSHOT_WAIT)
 
@@ -104,23 +101,20 @@ def main(input_file, force_recheck=False):
     pd.DataFrame(links).to_csv(links_file, index=False)
     print(f"🔗 Saved {len(links)} external links to: {links_file}")
 
- 
     # Stage 4: YouTube, Twitch & TikTok Audio Platform Filtering
     print("\n🎯 STAGE 4: YouTube, Twitch & TikTok Audio Platform Filtering")
     print("-" * 60)
     audio_filter = AudioContentFilter()
     audio_links = audio_filter.filter_audio_links(links)
+
     if not audio_links:
         print("🔍 No YouTube, Twitch or TikTok links found")
         print("⚠️ Pipeline completed but no supported platforms detected")
         return
 
     print(f"🎯 Found {len(audio_links)} YouTube/Twitch/TikTok audio links!")
-
-
     audio_file = os.path.join(cfg.OUTPUT_DIR, f"4_snapshot_{snapshot_id}_audio_links.csv")
     pd.DataFrame(audio_links).to_csv(audio_file, index=False)
-    print(f"🎯 Found {len(audio_links)} YouTube/Twitch audio links!")
     print(f"📁 Saved to: {audio_file}")
 
     # Show platform breakdown
@@ -133,11 +127,9 @@ def main(input_file, force_recheck=False):
     for platform, count in platform_counts.items():
         print(f" {platform}: {count}")
 
-
-    # Stage 4.5: YouTube, Twitch & TikTok Audio Content Detection  
+    # Stage 4.5: YouTube, Twitch & TikTok Audio Content Detection
     print("\n🎵 STAGE 4.5: YouTube, Twitch & TikTok Audio Content Detection")
     print("-" * 60)
-
     audio_detector = AudioContentDetector(timeout=10)
     audio_detected_links = audio_detector.detect_audio_content(audio_links)
 
@@ -149,7 +141,6 @@ def main(input_file, force_recheck=False):
     # Save audio detection results
     audio_detected_file = os.path.join(cfg.OUTPUT_DIR, f"4_5_snapshot_{snapshot_id}_audio_detected.csv")
     pd.DataFrame(audio_detected_links).to_csv(audio_detected_file, index=False)
-
     print(f"🎵 Found {len(audio_detected_links)} links with actual audio content!")
     print(f"📁 Saved to: {audio_detected_file}")
 
@@ -163,17 +154,16 @@ def main(input_file, force_recheck=False):
         confidence_levels[confidence] = confidence_levels.get(confidence, 0) + 1
 
     print("\n📊 Audio Content Breakdown:")
-    print("  Audio Types:")
+    print(" Audio Types:")
     for audio_type, count in sorted(audio_types.items(), key=lambda x: x[1], reverse=True):
-        print(f"    {audio_type}: {count}")
-    print("  Confidence Levels:")
+        print(f" {audio_type}: {count}")
+    print(" Confidence Levels:")
     for confidence, count in confidence_levels.items():
-        print(f"    {confidence}: {count}")
+        print(f" {confidence}: {count}")
 
     # Stage 5: YouTube, Twitch & TikTok Voice Content Verification
     print("\n🎙️ STAGE 5: YouTube, Twitch & TikTok Voice Content Verification")
     print("-" * 60)
-
     voice_verifier = VoiceContentVerifier(timeout=15)
     verified_links = voice_verifier.verify_voice_content(audio_detected_links)
 
@@ -204,15 +194,15 @@ def main(input_file, force_recheck=False):
             confidence_levels[confidence] = confidence_levels.get(confidence, 0) + 1
 
         print("\n📊 Voice Content Analysis:")
-        print("  Voice Types:")
+        print(" Voice Types:")
         for voice_type, count in sorted(voice_types.items(), key=lambda x: x[1], reverse=True):
-            print(f"    {voice_type}: {count}")
-        print("  Platforms:")
+            print(f" {voice_type}: {count}")
+        print(" Platforms:")
         for platform, count in sorted(platforms.items(), key=lambda x: x[1], reverse=True):
-            print(f"    {platform}: {count}")
-        print("  Confidence Levels:")
+            print(f" {platform}: {count}")
+        print(" Confidence Levels:")
         for confidence, count in confidence_levels.items():
-            print(f"    {confidence}: {count}")
+            print(f" {confidence}: {count}")
 
         # Show sample confirmed voice links
         print("\n🎙️ Sample Confirmed Voice Content:")
@@ -221,54 +211,49 @@ def main(input_file, force_recheck=False):
             voice_type = link.get('voice_type', 'unknown')
             confidence = link.get('voice_confidence', 'unknown')
             url = link.get('url', '')[:60] + '...' if len(link.get('url', '')) > 60 else link.get('url', '')
-            print(f"  {i}. @{username} | {voice_type} | {confidence} confidence")
-            print(f"     {url}")
-
+            print(f" {i}. @{username} | {voice_type} | {confidence} confidence")
+            print(f" {url}")
     else:
         print("❌ No voice content confirmed after verification")
         print("💡 This means the YouTube/Twitch links found were likely music or non-voice content")
         confirmed_voice = []  # Ensure it's an empty list for Stage 6
 
-    # Stage 6: Voice Sample Extraction (30-second samples)
-    print("\n🎤 STAGE 6: Voice Sample Extraction ")
+    # Stage 6: Voice Sample Extraction
+    print("\n🎤 STAGE 6: Voice Sample Extraction")
     print("-" * 60)
-
     if confirmed_voice:
         sample_extractor = VoiceSampleExtractor(
-            output_dir="voice_samples",
-            max_duration_hours=1,  # Максимум 1 час
+            output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_samples"),
+            max_duration_hours=1,  # Maximum 1 hour
             quality="192"
         )
 
-        
         extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
-        
+
         if extracted_samples:
             # Save extraction results
             extraction_file = os.path.join(cfg.OUTPUT_DIR, f"6_snapshot_{snapshot_id}_voice_samples.csv")
             pd.DataFrame(extracted_samples).to_csv(extraction_file, index=False)
             print(f"📁 Saved extraction results to: {extraction_file}")
-            
+
             # Generate samples report
             report_file = sample_extractor.generate_samples_report(extracted_samples)
-            
+
             print(f"\n🎤 Voice Sample Extraction Summary:")
-            print(f"  📊 Total voice links: {len(confirmed_voice)}")
-            print(f"  ✅ Successful extractions: {len(extracted_samples)}")
-            print(f"  📁 Samples directory: {sample_extractor.output_dir}")
-            print(f"  📄 Report file: {report_file}")
-            print(f"  ⏱️ Sample duration: 30 seconds each")
-            
+            print(f" 📊 Total voice links: {len(confirmed_voice)}")
+            print(f" ✅ Successful extractions: {len(extracted_samples)}")
+            print(f" 📁 Samples directory: {sample_extractor.output_dir}")
+            print(f" 📄 Report file: {report_file}")
+            print(f" ⏱️ Sample duration: up to 1 hour each")
+
             # Show extracted files
             print(f"\n🎵 Extracted Sample Files:")
             for sample in extracted_samples:
                 filename = sample.get('sample_filename', 'N/A')
                 username = sample.get('processed_username', 'unknown')
                 platform = sample.get('platform_source', 'unknown')
-                start_time = sample.get('start_time_formatted', '0:00')
                 file_size = sample.get('file_size_bytes', 0)
-                print(f"  📄 {filename} (@{username} {platform} from {start_time}, {file_size//1000}KB)")
-            
+                print(f" 📄 {filename} (@{username} {platform}, {file_size//1000}KB)")
         else:
             print("❌ No voice samples could be extracted")
             print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
@@ -277,69 +262,23 @@ def main(input_file, force_recheck=False):
         print("⏭️ Skipping voice sample extraction - no confirmed voice content")
         extracted_samples = []
 
-    # Stage 8: Background Noise Reduction (NEW STAGE)
-    print("\n🎛️ STAGE 8: Background Noise Reduction")
-    print("-" * 60)
-
-    if extracted_samples:
-        # Determine samples directory from extracted samples
-        first_sample_path = extracted_samples[0].get('sample_file')
-        if first_sample_path and os.path.exists(first_sample_path):
-            samples_dir_for_nr = os.path.dirname(first_sample_path)
-        else:
-            samples_dir_for_nr = os.path.join(cfg.OUTPUT_DIR, "voice_samples")
-
-        # Initialize noise reducer with default settings
-        noise_reducer = NoiseReducer(
-            output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_analysis"),
-            mode="quick",  # Default to quick mode
-            sample_rate=16000,
-            highpass_hz=80,
-            lowpass_hz=6000,
-            afftdn_nr=24.0,
-            afftdn_nf=12.0
-        )
-        
-        # Process the samples directory
-        nr_results = noise_reducer.process_directory(samples_dir_for_nr)
-        denoised_dir = os.path.join(cfg.OUTPUT_DIR, "voice_analysis", "denoised_audio")
-        
-        successful_denoising = sum(1 for r in nr_results if r.get('output_file'))
-        print(f"✅ Noise reduction completed: {successful_denoising} files denoised")
-        print(f"📁 Denoised files saved to: {denoised_dir}")
-        
-        # Update extracted_samples to point to denoised files where available
-        if successful_denoising > 0:
-            for sample in extracted_samples:
-                orig_path = sample.get('sample_file', '')
-                if orig_path:
-                    base_name = os.path.splitext(os.path.basename(orig_path))[0]
-                    denoised_path = os.path.join(denoised_dir, f"{base_name}_denoised.wav")
-                    if os.path.exists(denoised_path):
-                        sample['sample_file'] = denoised_path
-                        sample['is_denoised'] = True
-                    else:
-                        sample['is_denoised'] = False
-    else:
-        print("⏭️ Skipping noise reduction - no extracted samples")
-
-    # Stage 7: Audio Content Filtering (Voice-Only Detection) - moved after Stage 8
+    # Stage 7: Audio Content Filtering (Voice-Only Detection)
     print("\n🔍 STAGE 7: Audio Content Filtering (Voice-Only Detection)")
     print("-" * 60)
 
     if extracted_samples:
-        # Use AdvancedVoiceProcessor instead of SimpleAudioContentAnalyzer
+        # Use AdvancedVoiceProcessor for voice-only filtering
         processor = AdvancedVoiceProcessor(
             output_dir=os.path.join(cfg.OUTPUT_DIR, "audio_analysis"),
             min_voice_confidence=0.6,
             voice_segment_min_length=2.0
         )
-        
+
         # Create temporary directory with audio files for processing
         temp_audio_dir = os.path.join(cfg.OUTPUT_DIR, "temp_audio_for_processing")
         os.makedirs(temp_audio_dir, exist_ok=True)
-        
-        # Copy/link audio files to temp directory for batch processing
+
+        # Copy audio files to temp directory for batch processing
         for sample in extracted_samples:
             sample_file = sample.get('sample_file')
             if sample_file and os.path.exists(sample_file):
@@ -347,15 +286,15 @@ def main(input_file, force_recheck=False):
                 dest_file = os.path.join(temp_audio_dir, os.path.basename(sample_file))
                 if not os.path.exists(dest_file):
                     shutil.copy2(sample_file, dest_file)
-        
+
         # Process the audio directory
         voice_only_results = processor.process_audio_directory(temp_audio_dir)
-        
+
         if voice_only_results:
             # Save results
             results_file = processor.save_results(voice_only_results)
             report_file = processor.generate_report(voice_only_results)
-            
+
             # Save simplified CSV for compatibility
             voice_only_file = os.path.join(cfg.OUTPUT_DIR, f"7_snapshot_{snapshot_id}_voice_only.csv")
             simplified_results = []
@@ -369,18 +308,18 @@ def main(input_file, force_recheck=False):
                     'word_count': result.get('speech_analysis', {}).get('word_count', 0),
                     'voice_duration': result.get('voice_duration', 0)
                 })
-            
+
             pd.DataFrame(simplified_results).to_csv(voice_only_file, index=False)
-            
+
             print(f"🔍 Audio Content Filtering Summary:")
-            print(f"  📊 Total audio samples: {len(extracted_samples)}")
-            print(f"  ✅ Voice-only samples: {len(voice_only_results)}")
-            print(f"  ❌ Filtered out: {len(extracted_samples) - len(voice_only_results)}")
-            print(f"  📈 Voice detection rate: {(len(voice_only_results) / len(extracted_samples) * 100):.1f}%")
-            print(f"  📁 Voice-only CSV: {voice_only_file}")
-            print(f"  📄 Advanced analysis report: {report_file}")
-            print(f"  🎵 Voice-only audio: {processor.voice_only_dir}")
-            
+            print(f" 📊 Total audio samples: {len(extracted_samples)}")
+            print(f" ✅ Voice-only samples: {len(voice_only_results)}")
+            print(f" ❌ Filtered out: {len(extracted_samples) - len(voice_only_results)}")
+            print(f" 📈 Voice detection rate: {(len(voice_only_results) / len(extracted_samples) * 100):.1f}%")
+            print(f" 📁 Voice-only CSV: {voice_only_file}")
+            print(f" 📄 Advanced analysis report: {report_file}")
+            print(f" 🎵 Voice-only audio: {processor.voice_only_dir}")
+
             # Show sample results
             print(f"\n🎤 Sample Voice-Only Content:")
             for i, result in enumerate(voice_only_results[:3], 1):
@@ -389,23 +328,101 @@ def main(input_file, force_recheck=False):
                 confidence = result.get('final_analysis', {}).get('final_confidence', 0)
                 word_count = result.get('speech_analysis', {}).get('word_count', 0)
                 platform = result.get('platform', 'unknown')
-                print(f"  {i}. @{username} ({platform}) | \"{speech_text}...\"")
-                print(f"     📊 Confidence: {confidence:.2f} | Words: {word_count}")
-            
+                print(f" {i}. @{username} ({platform}) | \"{speech_text}...\"")
+                print(f" 📊 Confidence: {confidence:.2f} | Words: {word_count}")
+
             voice_only_samples = simplified_results
         else:
             print("❌ No voice-only content found after filtering")
             print("💡 All audio samples contained music, noise, or unclear content")
             voice_only_samples = []
-        
+
         # Cleanup temp directory
         import shutil
         if os.path.exists(temp_audio_dir):
             shutil.rmtree(temp_audio_dir)
-            
     else:
         print("⏭️ Skipping audio content filtering - no audio samples extracted")
         voice_only_samples = []
+
+    # Stage 8: Background Noise Reduction (Now processes Stage 7 output)
+    print("\n🎛️ STAGE 8: Background Noise Reduction")
+    print("-" * 60)
+
+    if 'voice_only_results' in locals() and voice_only_results:
+        # Use the voice-only directory from Stage 7 as input for noise reduction
+        samples_dir_for_nr = processor.voice_only_dir
+
+        # Fallback to original samples if voice-only directory doesn't exist or is empty
+        if not os.path.exists(samples_dir_for_nr) or not os.listdir(samples_dir_for_nr):
+            print("⚠️ Voice-only directory empty, falling back to original samples")
+            if 'sample_extractor' in locals() and sample_extractor and os.path.exists(sample_extractor.output_dir):
+                samples_dir_for_nr = sample_extractor.output_dir
+            else:
+                print("❌ No input directory available for noise reduction")
+                samples_dir_for_nr = None
+
+        if samples_dir_for_nr:
+            # Initialize noise reducer with corrected settings
+            noise_reducer = NoiseReducer(
+                output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_analysis"),
+                mode="quick",  # Default to quick mode
+                sample_rate=16000,
+                highpass_hz=80,
+                lowpass_hz=6000,
+                afftdn_nr=24.0,
+                afftdn_nf=-40.0  # Fixed: correct negative value
+            )
+
+            # Process the voice-only samples directory (Stage 7 output)
+            nr_results = noise_reducer.process_directory(samples_dir_for_nr)
+            denoised_dir = os.path.join(cfg.OUTPUT_DIR, "voice_analysis", "denoised_audio")
+            successful_denoising = sum(1 for r in nr_results if r.get('output_file'))
+
+            print(f"✅ Noise reduction completed: {successful_denoising} files denoised")
+            print(f"📁 Denoised files saved to: {denoised_dir}")
+            print(f"🎛️ Input source: Voice-only filtered files from Stage 7")
+
+            # Update voice_only_samples to point to denoised files where available
+            if successful_denoising > 0 and 'voice_only_samples' in locals():
+                for sample in voice_only_samples:
+                    voice_file = sample.get('voice_only_file', '')
+                    if voice_file:
+                        base_name = os.path.splitext(os.path.basename(voice_file))[0]
+                        denoised_path = os.path.join(denoised_dir, f"{base_name}_denoised.wav")
+                        if os.path.exists(denoised_path):
+                            sample['denoised_file'] = denoised_path
+                            sample['is_denoised'] = True
+                        else:
+                            sample['is_denoised'] = False
+        else:
+            print("⏭️ Skipping noise reduction - no voice-only samples from Stage 7")
+            successful_denoising = 0
+    else:
+        print("⏭️ Skipping noise reduction - no voice-only results from Stage 7")
+        successful_denoising = 0
+
+    # Stage 9: Speaker 1 Extraction (После Stage 8 - Noise Reduction)
+    if 'successful_denoising' in locals() and successful_denoising > 0:
+        print("\n🎤 STAGE 9: Speaker 1 Extraction")
+        print("-" * 60)
+
+        # Используем выход Stage 8 (denoised_dir) как вход для Stage 9
+        samples_dir_for_speaker_extraction = os.path.join(cfg.OUTPUT_DIR, "voice_analysis", "denoised_audio")
+
+        if os.path.exists(samples_dir_for_speaker_extraction) and os.listdir(samples_dir_for_speaker_extraction):
+            stage9_results = run_stage9_only(samples_dir_for_speaker_extraction)
+
+            if stage9_results:
+                print(f"✅ Stage 9 completed successfully!")
+                print(f"🎤 Speaker 1 files: {len(stage9_results['results'])}")
+                print(f"📁 Final output: {stage9_results['output_dir']}")
+            else:
+                print("❌ Stage 9 failed")
+        else:
+            print("❌ No denoised files found for Stage 9")
+    else:
+        print("\n⏭️ Skipping Stage 9 - no successfully denoised files from Stage 8")
 
     # Final comprehensive summary
     print("\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
@@ -417,40 +434,58 @@ def main(input_file, force_recheck=False):
     print(f"🔊 Audio content confirmed: {len(audio_detected_links)}")
     print(f"🎙️ Voice content confirmed: {len(confirmed_voice)}")
     print(f"🎤 Voice samples extracted: {len(extracted_samples) if 'extracted_samples' in locals() else 0}")
+    print(f"🔍 Voice-only samples (filtered): {len(voice_only_samples) if 'voice_only_samples' in locals() else 0}")
     print(f"🎛️ Samples denoised: {successful_denoising if 'successful_denoising' in locals() else 0}")
-    print(f"✅ Voice-only samples (filtered): {len(voice_only_samples) if 'voice_only_samples' in locals() else 0}")
+    
+    # Check if stage9_results exists and has results
+    if 'stage9_results' in locals() and stage9_results and 'results' in stage9_results:
+        print(f"🎤 Speaker 1 files created: {len(stage9_results['results'])}")
+    else:
+        print(f"🎤 Speaker 1 files created: 0")
+    
     print(f"📈 Voice confirmation rate: {(len(confirmed_voice) / len(audio_links) * 100):.1f}%" if audio_links else "0%")
     print(f"📈 Voice-only filtering rate: {(len(voice_only_samples) / len(extracted_samples) * 100):.1f}%" if 'extracted_samples' in locals() and extracted_samples and 'voice_only_samples' in locals() else "0%")
     print(f"🆔 Snapshot ID: {snapshot_id}")
     print(f"📁 Results saved in: {cfg.OUTPUT_DIR}")
+    print(f"🔄 Stage execution order: 6 → 7 → 8 → 9 (Voice Extraction → Voice Filtering → Noise Reduction → Speaker Extraction)")
 
     # Final output files summary
     print(f"\n📄 Output Files Generated:")
-    print(f"  1. {existing_accounts_file} - Validated accounts")
-    print(f"  2. {profiles_file} - Profile data")
-    print(f"  3. {links_file} - External links")
-    print(f"  4. {audio_file} - YouTube/Twitch links")
-    print(f"  5. {audio_detected_file} - Audio content detected")
-    print(f"  6. {verified_file} - Voice verification results")
+    print(f" 1. {existing_accounts_file} - Validated accounts")
+    print(f" 2. {profiles_file} - Profile data")
+    print(f" 3. {links_file} - External links")
+    print(f" 4. {audio_file} - YouTube/Twitch links")
+    print(f" 5. {audio_detected_file} - Audio content detected")
+    print(f" 6. {verified_file} - Voice verification results")
+
     if confirmed_voice:
-        print(f"  7. {confirmed_file} - ⭐ CONFIRMED VOICE CONTENT")
+        print(f" 7. {confirmed_file} - ⭐ CONFIRMED VOICE CONTENT")
+
     if 'extracted_samples' in locals() and extracted_samples:
-        print(f"  8. {extraction_file} - 🎤 VOICE SAMPLE EXTRACTION RESULTS")
-        print(f"  9. {sample_extractor.output_dir} - 🎵 VOICE SAMPLES DIRECTORY")
-        print(f"  10. {denoised_dir} - 🎛️ DENOISED AUDIO FILES (Stage 8)")
+        print(f" 8. {extraction_file} - 🎤 VOICE SAMPLE EXTRACTION RESULTS")
+        print(f" 9. {sample_extractor.output_dir} - 🎵 VOICE SAMPLES DIRECTORY")
+
     if 'voice_only_samples' in locals() and voice_only_samples:
-        print(f"  11. {voice_only_file} - ✅ VOICE-ONLY FILTERED RESULTS")
-        print(f"  12. {processor.voice_only_dir} - 🎤 VOICE-ONLY AUDIO FILES")
+        print(f" 10. {voice_only_file} - 🔍 VOICE-ONLY FILTERED RESULTS")
+        print(f" 11. {processor.voice_only_dir} - 🎤 VOICE-ONLY AUDIO FILES")
+
+    if 'successful_denoising' in locals() and successful_denoising > 0:
+        print(f" 12. {denoised_dir} - 🎛️ DENOISED AUDIO FILES")
+
+    if 'stage9_results' in locals() and stage9_results:
+        print(f" 13. {stage9_results['output_dir']} - 🎤 SPEAKER 1 AUDIO FILES (Final Stage)")
+
 
 # Individual Stage Runner Functions
+
 def run_stage1_only(input_file, force_recheck=False):
     """Run only Stage 1: Account Validation"""
     cfg = Config()
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-    
+
     print("✅ STAGE 1 ONLY: Account Validation")
     print("=" * 50)
-    
+
     log_file = os.path.join(cfg.OUTPUT_DIR, "processed_accounts.json")
     validator = AccountValidator(
         max_concurrent=cfg.MAX_CONCURRENT_VALIDATIONS,
@@ -458,39 +493,40 @@ def run_stage1_only(input_file, force_recheck=False):
         delay_max=cfg.VALIDATION_DELAY_MAX,
         log_file=log_file
     )
-    
+
     existing_accounts_file = os.path.join(cfg.OUTPUT_DIR, "1_existing_accounts.csv")
     valid_accounts = validator.validate_accounts_from_file(
         input_file, existing_accounts_file, force_recheck=force_recheck
     )
-    
+
     print(f"\n✅ Stage 1 completed!")
     print(f"📊 Valid accounts found: {len(valid_accounts)}")
     print(f"📁 Output file: {existing_accounts_file}")
     print(f"💡 Next: Run Stage 2 with --stage2-only {existing_accounts_file}")
 
+
 def run_stage2_only(accounts_file):
     """Run only Stage 2: Bright Data Trigger"""
     cfg = Config()
-    
+
     print("🚀 STAGE 2 ONLY: Bright Data Trigger")
     print("=" * 50)
-    
+
     # Load accounts from previous stage
     if not os.path.exists(accounts_file):
         print(f"❌ Accounts file not found: {accounts_file}")
         return None
-        
+
     df = pd.read_csv(accounts_file)
     valid_accounts = df.to_dict('records')
     usernames = [acc['username'] for acc in valid_accounts]
-    
+
     print(f"📥 Loaded {len(usernames)} accounts from: {accounts_file}")
-    
+
     # Check for existing snapshot
     sm = SnapshotManager(cfg.OUTPUT_DIR)
     existing_snapshot = sm.get_reusable_snapshot(usernames)
-    
+
     if existing_snapshot:
         print(f"🔄 Using existing snapshot: {existing_snapshot}")
         snapshot_id = existing_snapshot
@@ -498,76 +534,82 @@ def run_stage2_only(accounts_file):
         # Create new snapshot
         trigger = BrightDataTrigger(cfg.BRIGHT_DATA_API_TOKEN, cfg.BRIGHT_DATA_DATASET_ID)
         snapshot_id = trigger.create_snapshot_from_usernames(usernames)
+
         if snapshot_id:
             sm.register_snapshot(snapshot_id, valid_accounts)
         else:
             print("❌ Failed to create snapshot")
             return None
-        
+
     print(f"✅ Stage 2 completed!")
     print(f"🆔 Snapshot ID: {snapshot_id}")
     print(f"💡 Next: Run Stage 3 with --stage3-only {snapshot_id}")
     return snapshot_id
 
+
 def run_stage3_only(snapshot_id):
     """Run only Stage 3: Data Download"""
     cfg = Config()
-    
+
     print("⬇️ STAGE 3 ONLY: Data Download")
     print("=" * 50)
-    
+
     downloader = BrightDataDownloader(cfg.BRIGHT_DATA_API_TOKEN)
     profiles = downloader.wait_and_download_snapshot(snapshot_id, cfg.MAX_SNAPSHOT_WAIT)
-    
+
     if not profiles:
         print("❌ Failed to download snapshot data")
         return None
-        
+
     # Save profile data
     profiles_file = os.path.join(cfg.OUTPUT_DIR, f"2_snapshot_{snapshot_id}_results.csv")
     pd.DataFrame(profiles).to_csv(profiles_file, index=False)
     print(f"📊 Saved {len(profiles)} profiles to: {profiles_file}")
-    
+
     # Extract external links
     links = downloader.extract_external_links(profiles)
+
     if not links:
         print("🔗 No external links found")
         return None
-        
+
     links_file = os.path.join(cfg.OUTPUT_DIR, f"3_snapshot_{snapshot_id}_external_links.csv")
     pd.DataFrame(links).to_csv(links_file, index=False)
-    
+
     print(f"✅ Stage 3 completed!")
     print(f"🔗 External links found: {len(links)}")
     print(f"📁 Links file: {links_file}")
     print(f"💡 Next: Run Stage 4 with --stage4-only {links_file}")
+
     return links_file
+
 
 def run_stage4_only(links_file):
     """Run only Stage 4: YouTube, Twitch & TikTok Audio Platform Filtering"""
     print("🎯 STAGE 4 ONLY: YouTube, Twitch & TikTok Audio Platform Filtering")
     print("=" * 50)
-    
+
     if not os.path.exists(links_file):
         print(f"❌ Links file not found: {links_file}")
         return None
-        
+
     df = pd.read_csv(links_file)
     links = df.to_dict('records')
+
     print(f"📥 Loaded {len(links)} links from: {links_file}")
-    
+
     audio_filter = AudioContentFilter()
     audio_links = audio_filter.filter_audio_links(links)
-    
+
     if not audio_links:
         print("🔍 No YouTube or Twitch links found")
         return None
-    
+
     # Generate output filename
     base_name = os.path.splitext(os.path.basename(links_file))[0]
     audio_file = os.path.join("output", f"4_{base_name.replace('3_', '')}_audio_links.csv")
     pd.DataFrame(audio_links).to_csv(audio_file, index=False)
-    
+
     # Show platform breakdown
     platform_counts = {}
     for link in audio_links:
@@ -575,39 +617,42 @@ def run_stage4_only(links_file):
         platform_counts[platform] = platform_counts.get(platform, 0) + 1
 
     print(f"✅ Stage 4 completed!")
-    print(f"🎯 YouTube/Twitch/TickTok links: {len(audio_links)}")
+    print(f"🎯 YouTube/Twitch/TikTok links: {len(audio_links)}")
     print("📊 Platform breakdown:")
     for platform, count in platform_counts.items():
-        print(f"  {platform}: {count}")
+        print(f" {platform}: {count}")
     print(f"📁 Audio file: {audio_file}")
     print(f"💡 Next: Run Stage 4.5 with --stage4_5-only {audio_file}")
+
     return audio_file
+
 
 def run_stage4_5_only(audio_links_file):
     """Run only Stage 4.5: Audio Content Detection"""
     print("🎵 STAGE 4.5 ONLY: YouTube, Twitch & TikTok Audio Content Detection")
     print("=" * 50)
-    
+
     if not os.path.exists(audio_links_file):
         print(f"❌ Audio links file not found: {audio_links_file}")
         return None
-        
+
     df = pd.read_csv(audio_links_file)
     audio_links = df.to_dict('records')
+
     print(f"📥 Loaded {len(audio_links)} audio links from: {audio_links_file}")
-    
+
     audio_detector = AudioContentDetector(timeout=10)
     audio_detected_links = audio_detector.detect_audio_content(audio_links)
-    
+
     if not audio_detected_links:
         print("🔍 No audio content detected")
         return None
-    
+
     # Generate output filename
     base_name = os.path.splitext(os.path.basename(audio_links_file))[0]
     audio_detected_file = os.path.join("output", f"4_5_{base_name.replace('4_', '')}_audio_detected.csv")
     pd.DataFrame(audio_detected_links).to_csv(audio_detected_file, index=False)
-    
+
     # Show audio type breakdown
     audio_types = {}
     confidence_levels = {}
@@ -620,15 +665,17 @@ def run_stage4_5_only(audio_links_file):
     print(f"✅ Stage 4.5 completed!")
     print(f"🔊 Audio content detected: {len(audio_detected_links)}")
     print("📊 Audio Content Breakdown:")
-    print("  Audio Types:")
+    print(" Audio Types:")
     for audio_type, count in sorted(audio_types.items(), key=lambda x: x[1], reverse=True):
-        print(f"    {audio_type}: {count}")
-    print("  Confidence Levels:")
+        print(f" {audio_type}: {count}")
+    print(" Confidence Levels:")
     for confidence, count in confidence_levels.items():
-        print(f"    {confidence}: {count}")
+        print(f" {confidence}: {count}")
     print(f"📁 Audio detected file: {audio_detected_file}")
     print(f"💡 Next: Run Stage 5 with --stage5-only {audio_detected_file}")
+
     return audio_detected_file
+
 
 def run_stage5_only(audio_links_file, output_dir="output"):
     """Run only Stage 5: Voice Content Verification"""
@@ -686,15 +733,15 @@ def run_stage5_only(audio_links_file, output_dir="output"):
             platforms[platform] = platforms.get(platform, 0) + 1
 
         print("\n📊 Voice Content Analysis:")
-        print("  Voice Types:")
+        print(" Voice Types:")
         for voice_type, count in sorted(voice_types.items(), key=lambda x: x[1], reverse=True):
-            print(f"    {voice_type}: {count}")
-        print("  Platforms:")
+            print(f" {voice_type}: {count}")
+        print(" Platforms:")
         for platform, count in platforms.items():
-            print(f"    {platform}: {count}")
-        print("  Confidence Levels:")
+            print(f" {platform}: {count}")
+        print(" Confidence Levels:")
         for confidence, count in confidence_levels.items():
-            print(f"    {confidence}: {count}")
+            print(f" {confidence}: {count}")
 
         # Show sample
         print("\n🎙️ Sample Confirmed Voice Content:")
@@ -703,11 +750,10 @@ def run_stage5_only(audio_links_file, output_dir="output"):
             voice_type = link.get('voice_type', 'unknown')
             confidence = link.get('voice_confidence', 'unknown')
             url = link.get('url', '')[:50] + '...' if len(link.get('url', '')) > 50 else link.get('url', '')
-            print(f"  {i}. @{username} | {voice_type} | {confidence}")
-            print(f"     {url}")
+            print(f" {i}. @{username} | {voice_type} | {confidence}")
+            print(f" {url}")
 
         print(f"💡 Next: Run Stage 6 with --stage6-only {confirmed_file}")
-
     else:
         print("❌ No voice content confirmed")
 
@@ -715,16 +761,17 @@ def run_stage5_only(audio_links_file, output_dir="output"):
     print(f"📊 Total links processed: {len(audio_links)}")
     print(f"🎙️ Voice content found: {len(confirmed_voice)}")
 
+
 def run_stage6_only(confirmed_voice_file, output_dir="output"):
-    """Run only Stage 6: Voice Sample Extraction (30s samples)"""
-    print("🎤 STAGE 6 ONLY: Voice Sample Extraction (30s samples)")
+    """Run only Stage 6: Voice Sample Extraction"""
+    print("🎤 STAGE 6 ONLY: Voice Sample Extraction")
     print("=" * 50)
-    
+
     # Load confirmed voice links
     if not os.path.exists(confirmed_voice_file):
         print(f"❌ Confirmed voice file not found: {confirmed_voice_file}")
         return
-    
+
     try:
         df = pd.read_csv(confirmed_voice_file)
         confirmed_voice = df.to_dict('records')
@@ -732,96 +779,64 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
     except Exception as e:
         print(f"❌ Error loading confirmed voice links: {e}")
         return
-    
+
     if not confirmed_voice:
         print("❌ No confirmed voice links found in file")
         return
-    
-    
+
     sample_extractor = VoiceSampleExtractor(
         output_dir=os.path.join(output_dir, "voice_samples"),
-        max_duration_hours=1, 
+        max_duration_hours=1,
         quality="192",
-        min_duration=30,    
-        max_duration=3600     
-        )
+        min_duration=30,
+        max_duration=3600
+    )
 
-    
     extracted_samples = sample_extractor.extract_voice_samples(confirmed_voice)
-    
+
     if extracted_samples:
         # Save results
         base_name = os.path.splitext(os.path.basename(confirmed_voice_file))[0]
         extraction_file = os.path.join(output_dir, f"6_{base_name}_voice_samples.csv")
         pd.DataFrame(extracted_samples).to_csv(extraction_file, index=False)
-        
+
         # Generate report
         report_file = sample_extractor.generate_samples_report(extracted_samples)
-        
+
         print(f"✅ Stage 6 completed!")
-        print(f"🎤 Successfully extracted {len(extracted_samples)} voice samples ")
+        print(f"🎤 Successfully extracted {len(extracted_samples)} voice samples")
         print(f"📁 Results: {extraction_file}")
         print(f"📄 Report: {report_file}")
         print(f"🎵 Samples directory: {sample_extractor.output_dir}")
-        print(f"⏱️ Sample duration: 30 seconds per sample")
-        print(f"💡 Next: Run Stage 8 with --stage8-only {sample_extractor.output_dir}")
-        
+        print(f"💡 Next: Run Stage 7 with --stage7-only {extraction_file}")
+
         # Show extracted files
         print(f"\n🎵 Extracted Sample Files:")
         for sample in extracted_samples:
             filename = sample.get('sample_filename', 'N/A')
             username = sample.get('processed_username', 'unknown')
             platform = sample.get('platform_source', 'unknown')
-            start_time = sample.get('start_time_formatted', '0:00')
             file_size = sample.get('file_size_bytes', 0)
-            print(f"  📄 {filename} (@{username} {platform} from {start_time}, {file_size//1000}KB)")
-        
+            print(f" 📄 {filename} (@{username} {platform}, {file_size//1000}KB)")
+
         # Clean temporary files
         sample_extractor.clean_temp_files()
-        
     else:
         print("❌ No voice samples could be extracted")
         print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
         print("💡 Also ensure the confirmed voice links are accessible")
 
-def run_stage8_only(wavs_dir, output_dir="voice_analysis", nr_mode="quick", nr_noise_file=None, nr_sr=16000, nr_highpass=80, nr_lowpass=6000, nr_db=24.0, nr_floor=12.0):
-    """Run only Stage 8: Noise reduction on directory with WAV files"""
-    print("🎛️ STAGE 8 ONLY: Background Noise Reduction")
-    print("=" * 50)
-    
-    if not os.path.isdir(wavs_dir):
-        print(f"❌ Directory not found: {wavs_dir}")
-        return
-    
-    reducer = NoiseReducer(
-        output_dir=output_dir,
-        mode=nr_mode,
-        noise_profile_file=nr_noise_file,
-        sample_rate=nr_sr,
-        highpass_hz=nr_highpass,
-        lowpass_hz=nr_lowpass,
-        afftdn_nr=nr_db,
-        afftdn_nf=nr_floor
-    )
-    
-    results = reducer.process_directory(wavs_dir)
-    
-    successful_count = sum(1 for r in results if r.get('output_file'))
-    print(f"\n✅ Stage 8 completed!")
-    print(f"🎛️ Successfully denoised: {successful_count} files")
-    print(f"📁 Denoised files saved to: {reducer.denoised_dir}")
-    print(f"💡 Next: Run Stage 7 with audio samples (will use denoised files)")
 
 def run_stage7_only(extracted_samples_file, output_dir="output"):
     """Run only Stage 7: Audio Content Filtering (Voice-Only Detection)"""
     print("🔍 STAGE 7 ONLY: Audio Content Filtering (Voice-Only Detection)")
     print("=" * 50)
-    
+
     # Load extracted samples
     if not os.path.exists(extracted_samples_file):
         print(f"❌ Extracted samples file not found: {extracted_samples_file}")
         return
-    
+
     try:
         df = pd.read_csv(extracted_samples_file)
         extracted_samples = df.to_dict('records')
@@ -829,56 +844,43 @@ def run_stage7_only(extracted_samples_file, output_dir="output"):
     except Exception as e:
         print(f"❌ Error loading extracted samples: {e}")
         return
-    
+
     if not extracted_samples:
         print("❌ No audio samples found in file")
         return
-    
+
     # Use AdvancedVoiceProcessor
     processor = AdvancedVoiceProcessor(
         output_dir=os.path.join(output_dir, "audio_analysis"),
         min_voice_confidence=0.6,
         voice_segment_min_length=2.0
     )
-    
+
     # Create temporary directory with audio files for processing
     temp_audio_dir = os.path.join(output_dir, "temp_audio_for_processing")
     os.makedirs(temp_audio_dir, exist_ok=True)
-    
-    # Check for denoised files first
-    denoised_dir = os.path.join(output_dir, "voice_analysis", "denoised_audio")
-    
+
     # Copy/link audio files to temp directory for batch processing
     for sample in extracted_samples:
         sample_file = sample.get('sample_file')
         if sample_file and os.path.exists(sample_file):
-            # Check for denoised version first
-            base_name = os.path.splitext(os.path.basename(sample_file))[0]
-            denoised_path = os.path.join(denoised_dir, f"{base_name}_denoised.wav")
-            
-            if os.path.exists(denoised_path):
-                source_file = denoised_path
-                print(f"  🎛️ Using denoised version: {os.path.basename(denoised_path)}")
-            else:
-                source_file = sample_file
-                print(f"  🎵 Using original file: {os.path.basename(sample_file)}")
-            
             import shutil
-            dest_file = os.path.join(temp_audio_dir, os.path.basename(source_file))
+            dest_file = os.path.join(temp_audio_dir, os.path.basename(sample_file))
             if not os.path.exists(dest_file):
-                shutil.copy2(source_file, dest_file)
-    
+                shutil.copy2(sample_file, dest_file)
+
     # Process the audio directory
     voice_only_results = processor.process_audio_directory(temp_audio_dir)
-    
+
     if voice_only_results:
         # Save results
         results_file = processor.save_results(voice_only_results)
         report_file = processor.generate_report(voice_only_results)
-        
+
         # Save simplified CSV for compatibility
         base_name = os.path.splitext(os.path.basename(extracted_samples_file))[0]
         voice_only_file = os.path.join(output_dir, f"7_{base_name}_voice_only.csv")
+
         simplified_results = []
         for result in voice_only_results:
             simplified_results.append({
@@ -890,16 +892,17 @@ def run_stage7_only(extracted_samples_file, output_dir="output"):
                 'word_count': result.get('speech_analysis', {}).get('word_count', 0),
                 'voice_duration': result.get('voice_duration', 0)
             })
-        
+
         pd.DataFrame(simplified_results).to_csv(voice_only_file, index=False)
-        
+
         print(f"✅ Stage 7 completed!")
         print(f"🎤 Voice-only samples found: {len(voice_only_results)}")
         print(f"📁 Voice-only results: {voice_only_file}")
         print(f"📄 Advanced analysis report: {report_file}")
         print(f"🎵 Voice-only audio files: {processor.voice_only_dir}")
         print(f"📈 Voice detection rate: {(len(voice_only_results) / len(extracted_samples) * 100):.1f}%")
-        
+        print(f"💡 Next: Run Stage 8 with --stage8-only {processor.voice_only_dir}")
+
         # Show sample results
         print(f"\n🎤 Sample Voice-Only Content:")
         for i, result in enumerate(voice_only_results[:3], 1):
@@ -907,29 +910,108 @@ def run_stage7_only(extracted_samples_file, output_dir="output"):
             speech_text = result.get('speech_analysis', {}).get('combined_text', '')[:40]
             confidence = result.get('final_analysis', {}).get('final_confidence', 0)
             word_count = result.get('speech_analysis', {}).get('word_count', 0)
-            print(f"  {i}. @{username} | \"{speech_text}...\" | {confidence:.2f} confidence ({word_count} words)")
-        
+            print(f" {i}. @{username} | \"{speech_text}...\" | {confidence:.2f} confidence ({word_count} words)")
     else:
         print("❌ No voice-only samples found")
         print("💡 Try lowering minimum confidence or check audio quality")
         print("💡 All samples may contain music or non-voice content")
-    
+
     # Cleanup temp directory
     import shutil
     if os.path.exists(temp_audio_dir):
         shutil.rmtree(temp_audio_dir)
 
+
+def run_stage8_only(wavs_dir, output_dir="voice_analysis", nr_mode="quick", nr_noise_file=None, nr_sr=16000, nr_highpass=80, nr_lowpass=6000, nr_db=24.0, nr_floor=-40.0):
+    """Run only Stage 8: Noise reduction on directory with WAV files"""
+    print("🎛️ STAGE 8 ONLY: Background Noise Reduction")
+    print("=" * 50)
+
+    if not os.path.isdir(wavs_dir):
+        print(f"❌ Directory not found: {wavs_dir}")
+        return
+
+    reducer = NoiseReducer(
+        output_dir=output_dir,
+        mode=nr_mode,
+        noise_profile_file=nr_noise_file,
+        sample_rate=nr_sr,
+        highpass_hz=nr_highpass,
+        lowpass_hz=nr_lowpass,
+        afftdn_nr=nr_db,
+        afftdn_nf=nr_floor  # Fixed: using correct negative value
+    )
+
+    results = reducer.process_directory(wavs_dir)
+    successful_count = sum(1 for r in results if r.get('output_file'))
+
+    print(f"\n✅ Stage 8 completed!")
+    print(f"🎛️ Successfully denoised: {successful_count} files")
+    print(f"📁 Denoised files saved to: {reducer.denoised_dir}")
+    print(f"💡 Next: Run Stage 9 with --stage9-only {reducer.denoised_dir}")
+
+
+def run_stage9_only(audio_dir, output_dir=None):
+    """Run only Stage 9: Speaker 1 Extraction"""
+    from step9_speaker1_extractor import SpeakerOneExtractor
+
+    print("🎤 STAGE 9 ONLY: Speaker 1 Extraction")
+    print("=" * 50)
+
+    cfg = Config()
+    
+    # Используем настройки из config
+    output_dir = output_dir or getattr(cfg, 'SPEAKER_ANALYSIS_DIR', os.path.join(cfg.OUTPUT_DIR, 'speaker_analysis'))
+
+    if not getattr(cfg, 'HUGGINGFACE_TOKEN', None):
+        print("⚠️ Warning: No HuggingFace token configured in config")
+        print("💡 Add HUGGINGFACE_TOKEN in config.py")
+
+    extractor = SpeakerOneExtractor(
+        output_dir=output_dir,
+        huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None),
+        target_sample_rate=getattr(cfg, 'TARGET_SAMPLE_RATE', 16000),
+        min_segment_duration=getattr(cfg, 'MIN_SEGMENT_DURATION', 1.0)
+    )
+
+    results = extractor.process_audio_directory(audio_dir)
+
+    if results:
+        results_file = extractor.save_results(results)
+        report_file = extractor.generate_report(results)
+
+        print(f"\n✅ Stage 9 completed!")
+        print(f"🎤 Speaker 1 files created: {len(results)}")
+        print(f"📁 Output directory: {extractor.speaker1_dir}")
+        print(f"📊 Results CSV: {results_file}")
+        print(f"📄 Report: {report_file}")
+
+        return {
+            'results': results,
+            'results_file': results_file,
+            'report_file': report_file,
+            'output_dir': extractor.speaker1_dir
+        }
+    else:
+        print("❌ No files could be processed successfully")
+        return None
+
+
 def show_help():
     """Show detailed usage help"""
     help_text = """
-🎙️ YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE (8-Stage Processing)
+🎙️ YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE (9-Stage Processing)
+
 This pipeline validates X/Twitter accounts, collects profile data through Bright Data API,
 extracts external links, filters for YouTube, Twitch & TikTok platforms, detects audio content,
-verifies voice/speech content, extracts  voice samples, and filters for voice-only content.
+verifies voice/speech content, extracts voice samples, filters for voice-only content, reduces noise,
+and extracts speaker 1 content.
+
+CORRECTED STAGE ORDER: 6 → 7 → 8 → 9 (Voice Extraction → Voice Filtering → Noise Reduction → Speaker Extraction)
 
 SUPPORTED PLATFORMS:
 - YouTube (youtube.com, youtu.be)
-- Twitch (twitch.tv, m.twitch.tv)  
+- Twitch (twitch.tv, m.twitch.tv)
 - TikTok (tiktok.com, www.tiktok.com, vm.tiktok.com, m.tiktok.com)
 
 VOICE CONTENT TYPES DETECTED:
@@ -941,52 +1023,47 @@ VOICE CONTENT TYPES DETECTED:
 - Gaming commentary
 - TikTok voice content (stories, tutorials, reactions)
 
-
-
 USAGE:
 python main_pipeline.py [options]
 
 FULL PIPELINE:
 --input FILE                 Run full pipeline on input file
---force-recheck             Force recheck all accounts
+--force-recheck              Force recheck all accounts
 
 INDIVIDUAL STAGES:
---stage1-only FILE          Run only Stage 1 (Account Validation)
---stage2-only FILE          Run only Stage 2 (Bright Data Trigger)
---stage3-only SNAPSHOT_ID   Run only Stage 3 (Data Download)
---stage4-only FILE          Run only Stage 4 (YouTube/Twitch Filter)
---stage4_5-only FILE        Run only Stage 4.5 (Audio Content Detection)
---stage5-only FILE          Run only Stage 5 (Voice Verification)
---stage6-only FILE          Run only Stage 6 (Voice Sample Extraction)
---stage8-only DIR           Run only Stage 8 (Noise Reduction on WAV directory)
---stage7-only FILE          Run only Stage 7 (Voice-Only Filtering)
+--stage1-only FILE           Run only Stage 1 (Account Validation)
+--stage2-only FILE           Run only Stage 2 (Bright Data Trigger)
+--stage3-only SNAPSHOT_ID    Run only Stage 3 (Data Download)
+--stage4-only FILE           Run only Stage 4 (YouTube/Twitch Filter)
+--stage4_5-only FILE         Run only Stage 4.5 (Audio Content Detection)
+--stage5-only FILE           Run only Stage 5 (Voice Verification)
+--stage6-only FILE           Run only Stage 6 (Voice Sample Extraction)
+--stage7-only FILE           Run only Stage 7 (Voice-Only Filtering)
+--stage8-only DIR            Run only Stage 8 (Noise Reduction on WAV directory)
+--stage9-only DIR            Run only Stage 9 (Speaker 1 Extraction on audio directory)
 
 STAGE 8 NOISE REDUCTION OPTIONS:
---nr-mode {quick,profile}   Noise reduction mode (default: quick)
---nr-noise-file FILE        Noise profile WAV for 'profile' mode
---nr-sr INT                 Target sample rate (default: 16000)
---nr-highpass INT           Highpass cutoff Hz (default: 80)
---nr-lowpass INT            Lowpass cutoff Hz (default: 6000)
---nr-db FLOAT               afftdn noise reduction dB (default: 24.0)
---nr-floor FLOAT            afftdn noise floor dB (default: 12.0)
+--nr-mode {quick,profile}    Noise reduction mode (default: quick)
+--nr-noise-file FILE         Noise profile WAV for 'profile' mode
+--nr-sr INT                  Target sample rate (default: 16000)
+--nr-highpass INT            Highpass cutoff Hz (default: 80)
+--nr-lowpass INT             Lowpass cutoff Hz (default: 6000)
+--nr-db FLOAT                afftdn noise reduction dB (default: 24.0)
+--nr-floor FLOAT             afftdn noise floor dB (default: -40.0)
 
 INFORMATION:
---show-log                  Show account validation summary
---show-snapshots            Show Bright Data snapshots
---analyze-duplicates        Analyze duplicate snapshots
---clear-log                 Clear account validation cache
---help-detailed             Show this help
+--show-log                   Show account validation summary
+--show-snapshots             Show Bright Data snapshots
+--analyze-duplicates         Analyze duplicate snapshots
+--clear-log                  Clear account validation cache
+--help-detailed              Show this help
 
 EXAMPLES:
 
 Full pipeline:
 python main_pipeline.py --input usernames.csv
 
-Stage 8 only (noise reduction):
-python main_pipeline.py --stage8-only output/voice_samples --nr-mode quick
-python main_pipeline.py --stage8-only output/voice_samples --nr-mode profile --nr-noise-file noise.wav
-
-Stage by stage:
+Stage by stage (corrected order):
 python main_pipeline.py --stage1-only usernames.csv
 python main_pipeline.py --stage2-only output/1_existing_accounts.csv
 python main_pipeline.py --stage3-only snap_12345
@@ -994,42 +1071,47 @@ python main_pipeline.py --stage4-only output/3_snapshot_snap_12345_external_link
 python main_pipeline.py --stage4_5-only output/4_snapshot_snap_12345_audio_links.csv
 python main_pipeline.py --stage5-only output/4_5_snapshot_snap_12345_audio_detected.csv
 python main_pipeline.py --stage6-only output/5_snapshot_snap_12345_confirmed_voice.csv
-python main_pipeline.py --stage8-only output/voice_samples --nr-mode quick
 python main_pipeline.py --stage7-only output/6_snapshot_snap_12345_voice_samples.csv
+python main_pipeline.py --stage8-only output/audio_analysis/voice_only_audio --nr-mode quick
+python main_pipeline.py --stage9-only output/voice_analysis/denoised_audio
 
-PIPELINE STAGES:
-1. Account Validation       - Validate X/Twitter accounts exist
-2. Snapshot Management      - Create/reuse Bright Data collection
-3. Data Download           - Download profiles and extract links
-4. Audio Platform Filter   - Filter for YouTube/Twitch only
-4.5 Audio Content Detection - Verify actual audio content exists
-5. Voice Verification      - Confirm voice/speech content (not music)
-6. Voice Sample Extraction - Extract voice samples
-8. Background Noise Reduction - Clean audio samples using ffmpeg filters
-7. Voice-Only Filtering    - Advanced voice activity detection & speech recognition
+PIPELINE STAGES (CORRECTED ORDER):
+1.   Account Validation - Validate X/Twitter accounts exist
+2.   Snapshot Management - Create/reuse Bright Data collection
+3.   Data Download - Download profiles and extract links
+4.   Audio Platform Filter - Filter for YouTube/Twitch/TikTok only
+4.5  Audio Content Detection - Verify actual audio content exists
+5.   Voice Verification - Confirm voice/speech content (not music)
+6.   Voice Sample Extraction - Extract voice samples (up to 1 hour)
+7.   Voice-Only Filtering - Advanced voice activity detection & speech recognition
+8.   Background Noise Reduction - Clean voice-only filtered audio using ffmpeg filters
+9.   Speaker 1 Extraction - Extract segments from the first speaker using pyannote.audio
 
-SUPPORTED PLATFORMS:
-- YouTube (youtube.com, youtu.be)
-- Twitch (twitch.tv, m.twitch.tv)
+STAGE 9 REQUIREMENTS:
+- HuggingFace token (add to config.py or set HF_TOKEN environment variable)
+- pyannote.audio: pip install pyannote.audio
+- PyTorch: pip install torch
+- Accept license at: https://huggingface.co/pyannote/speaker-diarization-3.1
 
 SAMPLE SPECIFICATIONS:
-- Duration: 30 seconds per sample
+- Duration: Up to 1 hour per sample
 - Quality: 192 kbps original, 16kHz WAV after noise reduction
-- YouTube timing: 0:00-0:30 (from beginning)
-- Twitch timing: 3:00-3:30 (skip intro music)
-- Noise reduction: ffmpeg afftdn + filters
 - Voice-only filtering: Advanced VAD + Speech Recognition
+- Noise reduction: ffmpeg afftdn + filters (corrected nf=-40.0)
+- Speaker extraction: pyannote.audio speaker diarization
 
 DEPENDENCIES:
-pip install requests pandas playwright yt-dlp SpeechRecognition numpy
+pip install requests pandas playwright yt-dlp SpeechRecognition numpy pyannote.audio torch
 playwright install chromium
 ffmpeg (required for noise reduction)
 """
+
     print(help_text)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="YouTube, Twitch & TikTok Voice Content Pipeline with 8-Stage Processing (Noise Reduction included)",
+        description="YouTube, Twitch & TikTok Voice Content Pipeline with 9-Stage Processing (Corrected Order: 6→7→8→9)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
@@ -1044,8 +1126,9 @@ if __name__ == "__main__":
     parser.add_argument("--stage4_5-only", help="Run only Stage 4.5 - Detect audio content from audio links file")
     parser.add_argument("--stage5-only", help="Run only Stage 5 - Voice verification on audio links file")
     parser.add_argument("--stage6-only", help="Run only Stage 6 - Extract voice samples from confirmed voice file")
-    parser.add_argument("--stage8-only", help="Run only Stage 8 - Noise reduction on WAV directory")
     parser.add_argument("--stage7-only", help="Run only Stage 7 - Filter voice-only content from extracted samples file")
+    parser.add_argument("--stage8-only", help="Run only Stage 8 - Noise reduction on WAV directory")
+    parser.add_argument("--stage9-only", help="Run Stage 9: Speaker 1 Extraction on audio directory")
 
     # Stage 8 Noise Reduction options
     parser.add_argument("--nr-mode", choices=["quick", "profile"], default="quick", help="Noise reduction mode")
@@ -1054,7 +1137,7 @@ if __name__ == "__main__":
     parser.add_argument("--nr-highpass", type=int, default=80, help="Highpass cutoff Hz")
     parser.add_argument("--nr-lowpass", type=int, default=6000, help="Lowpass cutoff Hz")
     parser.add_argument("--nr-db", type=float, default=24.0, help="afftdn noise reduction dB")
-    parser.add_argument("--nr-floor", type=float, default=12.0, help="afftdn noise floor dB")
+    parser.add_argument("--nr-floor", type=float, default=-40.0, help="afftdn noise floor dB (MUST BE NEGATIVE)")
 
     # Information commands
     parser.add_argument("--show-log", action="store_true", help="Show account validation log summary")
@@ -1117,7 +1200,17 @@ if __name__ == "__main__":
         run_stage6_only(args.stage6_only, "output")
         sys.exit(0)
 
+    if args.stage7_only:
+        if not os.path.exists(args.stage7_only):
+            print(f"❌ Extracted samples file not found: {args.stage7_only}")
+            sys.exit(1)
+        run_stage7_only(args.stage7_only, "output")
+        sys.exit(0)
+
     if args.stage8_only:
+        if not os.path.exists(args.stage8_only):
+            print(f"❌ Audio directory not found: {args.stage8_only}")
+            sys.exit(1)
         run_stage8_only(
             args.stage8_only,
             output_dir="voice_analysis",
@@ -1131,11 +1224,11 @@ if __name__ == "__main__":
         )
         sys.exit(0)
 
-    if args.stage7_only:
-        if not os.path.exists(args.stage7_only):
-            print(f"❌ Extracted samples file not found: {args.stage7_only}")
+    if args.stage9_only:
+        if not os.path.exists(args.stage9_only):
+            print(f"❌ Audio directory not found: {args.stage9_only}")
             sys.exit(1)
-        run_stage7_only(args.stage7_only, "output")
+        run_stage9_only(args.stage9_only)
         sys.exit(0)
 
     # Handle information commands
@@ -1180,9 +1273,9 @@ if __name__ == "__main__":
 
         # Run main pipeline with comprehensive error handling
         try:
-            print(f"🚀 Starting full 8-stage pipeline with input: {args.input}")
+            print(f"🚀 Starting full 9-stage pipeline with input: {args.input}")
             print(f"🔄 Force recheck: {'Yes' if args.force_recheck else 'No (using cache)'}")
-            print(f"⏱️ Configuration: 30-second samples -> noise reduction -> voice-only filtering")
+            print(f"⏱️ Configuration: voice samples → voice-only filtering → noise reduction → speaker extraction")
             main(args.input, args.force_recheck)
         except KeyboardInterrupt:
             print("\n\n⏹️ Pipeline interrupted by user (Ctrl+C)")
@@ -1201,9 +1294,10 @@ if __name__ == "__main__":
         print("💡 Use --input FILE for full pipeline or --stage1-only FILE to start")
         print("📖 Use --help-detailed for complete usage guide")
         print("\n🎯 Quick start examples:")
-        print("  python main_pipeline.py --input usernames.csv")
-        print("  python main_pipeline.py --stage8-only output/voice_samples --nr-mode quick")
-        print("  python main_pipeline.py --stage7-only output/6_voice_samples.csv")
-        print("  python main_pipeline.py --show-log")
-        print("\n⏱️ Current configuration: 8-stage processing with noise reduction")
+        print(" python main_pipeline.py --input usernames.csv")
+        print(" python main_pipeline.py --stage7-only output/6_voice_samples.csv")
+        print(" python main_pipeline.py --stage8-only output/audio_analysis/voice_only_audio --nr-mode quick")
+        print(" python main_pipeline.py --stage9-only output/voice_analysis/denoised_audio")
+        print(" python main_pipeline.py --show-log")
+        print("\n⏱️ Current configuration: 9-stage processing with corrected order (6→7→8→9)")
         sys.exit(1)
