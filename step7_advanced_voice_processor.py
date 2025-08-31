@@ -2,476 +2,359 @@ import os
 import subprocess
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict
 import time
 import tempfile
 import speech_recognition as sr
-import json
 from pathlib import Path
 
 class AdvancedVoiceProcessor:
-    def __init__(self, output_dir="voice_analysis", min_voice_confidence=0.6, voice_segment_min_length=2.0):
+    def __init__(self, output_dir="voice_analysis", min_voice_confidence=0.6, voice_segment_min_length=1.0, default_language='en-US'):
+        self.default_language = default_language
         self.output_dir = output_dir
         self.min_voice_confidence = min_voice_confidence
-        self.voice_segment_min_length = voice_segment_min_length  # Minimum voice segment length in seconds
-        os.makedirs(output_dir, exist_ok=True)
+        self.voice_segment_min_length = voice_segment_min_length
         
-        # Create subdirectories
+        os.makedirs(output_dir, exist_ok=True)
         self.voice_only_dir = os.path.join(output_dir, "voice_only_audio")
         self.analysis_dir = os.path.join(output_dir, "analysis_results")
         os.makedirs(self.voice_only_dir, exist_ok=True)
         os.makedirs(self.analysis_dir, exist_ok=True)
         
-        # Initialize speech recognizer
         self.recognizer = sr.Recognizer()
         
-        print(f"🔍 Advanced Voice Processor initialized")
-        print(f"📁 Voice-only audio: {self.voice_only_dir}")
+        print(f"🎤 Advanced Voice Processor initialized")
+        print(f"📁 Voice-only output: {self.voice_only_dir}")
         print(f"📊 Analysis results: {self.analysis_dir}")
+        print(f"⚙️ Settings: min_confidence={min_voice_confidence}, min_length={voice_segment_min_length}s")
 
     def process_audio_directory(self, audio_dir: str) -> List[Dict]:
-        """Process all audio files in directory to extract voice-only segments"""
-        
+        """Process all audio files to extract voice-only segments"""
         if not os.path.exists(audio_dir):
-            print(f"❌ Audio directory not found: {audio_dir}")
+            print(f"❌ Directory not found: {audio_dir}")
             return []
-        
+
         # Find all audio files
         audio_files = []
         for ext in ['.mp3', '.wav', '.m4a', '.flac']:
             audio_files.extend(Path(audio_dir).glob(f"*{ext}"))
-        
+
         if not audio_files:
             print(f"❌ No audio files found in: {audio_dir}")
             return []
-        
+
         print(f"🎵 Found {len(audio_files)} audio files to process")
-        print(f"🎯 Processing strategy:")
-        print(f"  1. Voice Activity Detection (VAD)")
-        print(f"  2. Speech Recognition Analysis")
-        print(f"  3. Music/Voice Separation")
-        print(f"  4. Voice Segment Extraction")
-        print(f"  5. Quality Filtering")
-        
+        print(f"🎯 Strategy: Multi-language voice detection + noise/music removal")
+
         results = []
-        
         for i, audio_file in enumerate(audio_files, 1):
             print(f"\n🎤 [{i}/{len(audio_files)}] Processing: {audio_file.name}")
             
-            # Extract metadata from filename
-            metadata = self._extract_file_metadata(audio_file.name)
+            metadata = self._extract_metadata(audio_file.name)
+            language = self._detect_language(metadata.get('username', ''))
+            metadata['language'] = language
             
-            # Process the audio file
-            result = self._process_single_audio_file(str(audio_file), metadata)
+            print(f"  🌍 Detected language: {language}")
             
+            result = self._process_single_file(str(audio_file), metadata)
             if result:
                 results.append(result)
-            
-            time.sleep(0.5)  # Brief pause between files
-        
-        print(f"\n🎤 ADVANCED VOICE PROCESSING COMPLETED!")
-        print(f"📊 Total files processed: {len(audio_files)}")
+                print(f"  ✅ Success: Voice extracted")
+            else:
+                print(f"  ❌ No voice detected")
+
+        print(f"\n🎉 Processing complete!")
+        print(f"📊 Files processed: {len(audio_files)}")
         print(f"✅ Voice-only files created: {len(results)}")
-        
         return results
 
-    def _process_single_audio_file(self, audio_file: str, metadata: Dict) -> Dict:
-        """Process a single audio file to extract voice-only content"""
-        
+    def _process_single_file(self, file_path: str, metadata: Dict) -> Dict:
+        """Process a single audio file"""
         try:
-            # Step 1: Voice Activity Detection
-            print(f"  📊 Step 1: Voice Activity Detection...")
-            voice_segments = self._detect_voice_segments(audio_file)
+            language = metadata['language']
             
+            # Step 1: Detect voice segments
+            voice_segments = self._detect_voice_segments(file_path, language)
             if not voice_segments:
-                print(f"  ❌ No voice segments detected")
                 return None
-            
-            print(f"  ✅ Found {len(voice_segments)} voice segments")
-            
-            # Step 2: Speech Recognition Analysis
-            print(f"  🗣️ Step 2: Speech Recognition Analysis...")
-            speech_analysis = self._analyze_speech_content(audio_file, voice_segments)
-            
-            # Step 3: Extract and combine voice segments
-            print(f"  ✂️ Step 3: Extracting voice segments...")
-            voice_only_file = self._extract_voice_segments(audio_file, voice_segments, metadata)
-            
-            if not voice_only_file:
-                print(f"  ❌ Failed to extract voice segments")
+
+            print(f"    🔊 Found {len(voice_segments)} voice segments")
+
+            # Step 2: Extract voice-only audio
+            output_file = self._extract_voice_segments(file_path, voice_segments, metadata)
+            if not output_file:
                 return None
-            
-            # Step 4: Final quality check
-            print(f"  🔍 Step 4: Quality verification...")
-            final_analysis = self._verify_voice_quality(voice_only_file)
-            
-            if final_analysis['is_acceptable']:
-                print(f"  ✅ Voice-only file created: {os.path.basename(voice_only_file)}")
-                
-                # Combine all analysis results
-                result = {
-                    **metadata,
-                    'original_file': audio_file,
-                    'voice_only_file': voice_only_file,
-                    'voice_segments': voice_segments,
-                    'speech_analysis': speech_analysis,
-                    'final_analysis': final_analysis,
-                    'processing_status': 'success',
-                    'voice_duration': sum(seg['duration'] for seg in voice_segments),
-                    'total_voice_segments': len(voice_segments)
-                }
-                
-                return result
-            else:
-                print(f"  ❌ Voice quality check failed: {final_analysis['rejection_reason']}")
-                # Clean up failed file
-                if os.path.exists(voice_only_file):
-                    os.remove(voice_only_file)
+
+            # Step 3: Verify quality
+            if not self._verify_output_quality(output_file):
+                os.remove(output_file)
                 return None
-                
+
+            # Step 4: Analyze extracted speech
+            speech_info = self._analyze_extracted_speech(output_file, language)
+
+            return {
+                **metadata,
+                'original_file': file_path,
+                'voice_only_file': output_file,
+                'voice_segments': voice_segments,
+                'speech_info': speech_info,
+                'processing_status': 'success',
+                'voice_duration': sum(seg['duration'] for seg in voice_segments),
+                'total_segments': len(voice_segments)
+            }
+
         except Exception as e:
-            print(f"  ❌ Processing error: {str(e)[:50]}")
+            print(f"    ❌ Error: {str(e)}")
             return None
 
-    def _detect_voice_segments(self, audio_file: str) -> List[Dict]:
-        """Detect voice segments using energy-based and spectral analysis"""
+    def _detect_voice_segments(self, file_path: str, language: str) -> List[Dict]:
+        """Detect segments containing human voice"""
+        wav_file = self._convert_to_wav(file_path)
         
         try:
-            # Convert to WAV for processing
-            wav_file = self._convert_to_wav(audio_file)
+            # Get duration
+            duration_cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', wav_file]
+            result = subprocess.run(duration_cmd, capture_output=True, text=True)
+            total_duration = float(result.stdout.strip())
             
-            # Use ffmpeg to analyze audio properties
-            segments = self._analyze_audio_segments(wav_file)
+            print(f"    📏 Duration: {total_duration:.1f}s")
             
-            # Clean up temp file
-            if wav_file != audio_file:
-                os.unlink(wav_file)
-            
-            return segments
-            
-        except Exception as e:
-            print(f"    ⚠️ VAD error: {str(e)[:50]}")
-            return []
-
-    def _analyze_audio_segments(self, wav_file: str) -> List[Dict]:
-        """Analyze audio to find voice segments using ffmpeg and energy analysis"""
-        
-        try:
-            # Get audio duration
-            duration_cmd = [
-                'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
-                '-of', 'csv=p=0', wav_file
-            ]
-            duration_result = subprocess.run(duration_cmd, capture_output=True, text=True)
-            total_duration = float(duration_result.stdout.strip())
-            
-            # Analyze in chunks to find voice activity
-            chunk_size = 5.0  # 2-second chunks
+            # Use larger chunks for faster processing
+            chunk_size = 6.0  # 6-second chunks for efficiency
             segments = []
             
-            for start_time in np.arange(0, total_duration, chunk_size):
-                end_time = min(start_time + chunk_size, total_duration)
+            for start in np.arange(0, total_duration, chunk_size):
+                end = min(start + chunk_size, total_duration)
                 
-                # Extract chunk for analysis
+                # Extract chunk
                 chunk_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                 chunk_file.close()
                 
-                extract_cmd = [
-                    'ffmpeg', '-i', wav_file, '-ss', str(start_time),
-                    '-t', str(end_time - start_time), '-y', chunk_file.name
-                ]
+                extract_cmd = ['ffmpeg', '-i', wav_file, '-ss', str(start), '-t', str(end-start), '-y', chunk_file.name]
+                subprocess.run(extract_cmd, capture_output=True)
                 
-                result = subprocess.run(extract_cmd, capture_output=True, timeout=30)
+                # Analyze chunk for voice
+                voice_score = self._analyze_chunk_for_voice(chunk_file.name, language)
                 
-                if result.returncode == 0:
-                    # Analyze chunk for voice characteristics
-                    voice_score = self._analyze_chunk_for_voice(chunk_file.name)
-                    
-                    if voice_score > 0.3:  # Voice detected
-                        segments.append({
-                            'start': start_time,
-                            'end': end_time,
-                            'duration': end_time - start_time,
-                            'voice_score': voice_score
-                        })
+                if voice_score >= 0.5:  # Voice detected
+                    segments.append({
+                        'start': start,
+                        'end': end,
+                        'duration': end - start,
+                        'voice_score': voice_score
+                    })
+                    print(f"      ✅ Voice: {start:.1f}s-{end:.1f}s (score={voice_score:.2f})")
                 
-                # Clean up
                 os.unlink(chunk_file.name)
             
             # Merge adjacent segments
-            merged_segments = self._merge_adjacent_segments(segments)
+            merged = self._merge_adjacent_segments(segments)
             
-            return merged_segments
+            # Filter by minimum length and confidence
+            filtered = [seg for seg in merged if 
+                       seg['duration'] >= self.voice_segment_min_length and 
+                       seg['voice_score'] >= self.min_voice_confidence]
             
-        except Exception as e:
-            print(f"    ⚠️ Segment analysis error: {str(e)[:50]}")
-            return []
+            return filtered
+            
+        finally:
+            if wav_file != file_path:
+                os.unlink(wav_file)
 
-    def _analyze_chunk_for_voice(self, chunk_file: str) -> float:
-        """Analyze audio chunk to determine voice likelihood"""
-        
+    def _analyze_chunk_for_voice(self, chunk_file: str, language: str) -> float:
+        """Analyze chunk for human voice - OPTIMIZED VERSION"""
         try:
-            # Use speech recognition as primary indicator
-            with sr.AudioFile(chunk_file) as source:
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                audio_data = self.recognizer.record(source)
+            # Fast silence detection first
+            silence_cmd = ['ffmpeg', '-i', chunk_file, '-af', 'volumedetect', '-f', 'null', '-']
+            result = subprocess.run(silence_cmd, capture_output=True, text=True)
             
+            # Skip speech recognition if silence
+            if 'max_volume: -inf dB' in result.stderr:
+                return 0.0
+            
+            # Try speech recognition on chunks with audio
             try:
-                text = self.recognizer.recognize_google(audio_data, language='en-US')
-                if len(text.strip()) > 0:
-                    # Found speech - high voice score
-                    return min(0.9, len(text) / 50 + 0.5)
-            except:
+                with sr.AudioFile(chunk_file) as source:
+                    self.recognizer.adjust_for_ambient_noise(source, duration=0.2)
+                    audio_data = self.recognizer.record(source)
+                    
+                    # Multi-language support
+                    try:
+                        text = self.recognizer.recognize_google(audio_data, language=language)
+                    except:
+                        # Fallback to English if primary language fails
+                        text = self.recognizer.recognize_google(audio_data, language='en-US')
+                    
+                    if text and len(text.strip()) > 0:
+                        # Voice detected - score based on text length
+                        score = min(0.9, 0.6 + len(text) / 100)
+                        return score
+                        
+            except sr.UnknownValueError:
+                # Audio exists but no speech recognized
+                pass
+            except Exception:
                 pass
             
-            # Secondary analysis - check audio characteristics
-            # Use ffmpeg to get audio statistics
-            stats_cmd = [
-                'ffmpeg', '-i', chunk_file, '-af', 'astats=metadata=1:reset=1',
-                '-f', 'null', '-'
-            ]
-            
+            # Check if audio has voice-like characteristics
+            stats_cmd = ['ffmpeg', '-i', chunk_file, '-af', 'astats=metadata=1', '-f', 'null', '-']
             result = subprocess.run(stats_cmd, capture_output=True, text=True)
             
-            # Parse statistics for voice indicators
             if result.returncode == 0:
-                # Look for voice-like characteristics in the output
                 stderr = result.stderr.lower()
-                
-                # Simple heuristics for voice detection
-                voice_indicators = [
-                    'rms_level' in stderr,  # Good signal level
-                    'dynamic_range' in stderr,  # Voice has dynamic range
-                    'peak_level' in stderr  # Clear peaks
-                ]
-                
-                return 0.2 + (sum(voice_indicators) * 0.1)
+                # Look for audio activity indicators
+                if any(indicator in stderr for indicator in ['rms_level', 'dynamic_range']):
+                    return 0.3  # Some audio but no speech
             
-            return 0.1  # Low confidence
+            return 0.0
             
         except Exception:
             return 0.0
 
     def _merge_adjacent_segments(self, segments: List[Dict], gap_threshold: float = 1.0) -> List[Dict]:
-        """Merge voice segments that are close together"""
-        
+        """Merge adjacent voice segments"""
         if not segments:
             return []
         
-        # Sort segments by start time
         segments.sort(key=lambda x: x['start'])
-        
         merged = []
         current = segments[0].copy()
         
-        for next_seg in segments[1:]:
-            # If gap between segments is small, merge them
-            if next_seg['start'] - current['end'] <= gap_threshold:
-                # Extend current segment
-                current['end'] = next_seg['end']
+        for seg in segments[1:]:
+            if seg['start'] - current['end'] <= gap_threshold:
+                current['end'] = seg['end']
                 current['duration'] = current['end'] - current['start']
-                current['voice_score'] = max(current['voice_score'], next_seg['voice_score'])
+                current['voice_score'] = max(current['voice_score'], seg['voice_score'])
             else:
-                # Gap is too large, save current and start new
-                if current['duration'] >= self.voice_segment_min_length:
-                    merged.append(current)
-                current = next_seg.copy()
+                merged.append(current)
+                current = seg.copy()
         
-        # Don't forget the last segment
-        if current['duration'] >= self.voice_segment_min_length:
-            merged.append(current)
-        
+        merged.append(current)
         return merged
 
-    def _analyze_speech_content(self, audio_file: str, voice_segments: List[Dict]) -> Dict:
-        """Analyze speech content in detected voice segments"""
-        
-        try:
-            wav_file = self._convert_to_wav(audio_file)
-            
-            all_text = []
-            total_confidence = 0
-            successful_recognitions = 0
-            
-            for segment in voice_segments:
-                # Extract segment for speech recognition
-                segment_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                segment_file.close()
-                
-                extract_cmd = [
-                    'ffmpeg', '-i', wav_file, '-ss', str(segment['start']),
-                    '-t', str(segment['duration']), '-y', segment_file.name
-                ]
-                
-                result = subprocess.run(extract_cmd, capture_output=True, timeout=30)
-                
-                if result.returncode == 0:
-                    try:
-                        with sr.AudioFile(segment_file.name) as source:
-                            audio_data = self.recognizer.record(source)
-                        
-                        text = self.recognizer.recognize_google(audio_data, language='en-US')
-                        if text.strip():
-                            all_text.append(text)
-                            successful_recognitions += 1
-                            total_confidence += len(text) / 100  # Simple confidence scoring
-                    except:
-                        pass
-                
-                os.unlink(segment_file.name)
-            
-            # Clean up
-            if wav_file != audio_file:
-                os.unlink(wav_file)
-            
-            combined_text = ' '.join(all_text)
-            avg_confidence = total_confidence / len(voice_segments) if voice_segments else 0
-            
-            return {
-                'combined_text': combined_text,
-                'text_length': len(combined_text),
-                'word_count': len(combined_text.split()) if combined_text else 0,
-                'successful_segments': successful_recognitions,
-                'total_segments': len(voice_segments),
-                'speech_confidence': min(0.9, avg_confidence),
-                'recognition_rate': successful_recognitions / len(voice_segments) if voice_segments else 0
-            }
-            
-        except Exception as e:
-            return {
-                'combined_text': '',
-                'text_length': 0,
-                'word_count': 0,
-                'successful_segments': 0,
-                'total_segments': len(voice_segments),
-                'speech_confidence': 0.0,
-                'recognition_rate': 0.0,
-                'error': str(e)[:50]
-            }
-
-    def _extract_voice_segments(self, audio_file: str, voice_segments: List[Dict], metadata: Dict) -> str:
-        """Extract and combine voice segments into a single audio file"""
-        
+    def _extract_voice_segments(self, file_path: str, segments: List[Dict], metadata: Dict) -> str:
+        """Extract and concatenate voice segments"""
         try:
             # Generate output filename
-            base_name = metadata.get('username', 'unknown')
+            username = metadata.get('username', 'unknown')
             platform = metadata.get('platform', 'unknown')
             timestamp = int(time.time())
-            output_filename = f"{base_name}_{platform}_voice_only_{timestamp}.wav"
-            output_path = os.path.join(self.voice_only_dir, output_filename)
             
-            # Convert input to WAV
-            wav_file = self._convert_to_wav(audio_file)
+            output_file = os.path.join(
+                self.voice_only_dir, 
+                f"{username}_{platform}_voice_only_{timestamp}.wav"
+            )
             
-            # Create filter complex for ffmpeg to extract and concatenate segments
+            wav_file = self._convert_to_wav(file_path)
+            
+            # Create ffmpeg filter to extract and concatenate segments
             filter_parts = []
             input_parts = []
             
-            for i, segment in enumerate(voice_segments):
-                # Create a filter to extract each segment
-                filter_parts.append(f"[0:a]atrim=start={segment['start']}:end={segment['end']},asetpts=PTS-STARTPTS[seg{i}]")
+            for i, seg in enumerate(segments):
+                filter_parts.append(f"[0:a]atrim=start={seg['start']}:end={seg['end']},asetpts=PTS-STARTPTS[seg{i}]")
                 input_parts.append(f"[seg{i}]")
             
             # Concatenate all segments
-            concat_filter = f"{''.join(input_parts)}concat=n={len(voice_segments)}:v=0:a=1[out]"
-            
-            # Complete filter complex
+            concat_filter = f"{''.join(input_parts)}concat=n={len(segments)}:v=0:a=1[out]"
             filter_complex = ';'.join(filter_parts) + ';' + concat_filter
             
-            # Run ffmpeg command
+            # Run ffmpeg
             cmd = [
                 'ffmpeg', '-i', wav_file,
                 '-filter_complex', filter_complex,
                 '-map', '[out]',
-                '-c:a', 'pcm_s16le',  # Use WAV format for quality
-                '-ar', '16000',       # 16kHz sample rate
-                '-ac', '1',           # Mono
-                '-y', output_path
+                '-c:a', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                '-y', output_file
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True)
             
-            # Clean up temp file
-            if wav_file != audio_file:
+            if wav_file != file_path:
                 os.unlink(wav_file)
             
-            if result.returncode == 0 and os.path.exists(output_path):
-                return output_path
-            else:
-                print(f"    ⚠️ FFmpeg error: {result.stderr[:100]}")
-                return None
-                
+            if result.returncode == 0 and os.path.exists(output_file):
+                # Show compression info
+                orig_size = os.path.getsize(file_path)
+                new_size = os.path.getsize(output_file)
+                compression = (1 - new_size/orig_size) * 100
+                print(f"      📊 Size: {orig_size//1024}KB → {new_size//1024}KB ({compression:.1f}% reduction)")
+                return output_file
+            
+            return None
+            
         except Exception as e:
-            print(f"    ⚠️ Extraction error: {str(e)[:50]}")
+            print(f"      ❌ Extraction failed: {e}")
             return None
 
-    def _verify_voice_quality(self, voice_file: str) -> Dict:
-        """Simplified quality check with more permissive validation"""
+    def _verify_output_quality(self, file_path: str) -> bool:
+        """Verify the extracted voice file quality"""
         try:
-            # Check file size and duration
-            file_size = os.path.getsize(voice_file)
-            if file_size < 5000:  # Reduced threshold from 10KB to 5KB
-                return {
-                    'is_acceptable': False,
-                    'rejection_reason': 'File too small',
-                    'file_size': file_size
-                }
-
-            # Get duration
-            duration_cmd = [
-                'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
-                '-of', 'csv=p=0', voice_file
-            ]
-            duration_result = subprocess.run(duration_cmd, capture_output=True, text=True)
-            duration = float(duration_result.stdout.strip())
-
-            if duration < 1.0:  # Reduced from 3.0 to 1.0 seconds
-                return {
-                    'is_acceptable': False,
-                    'rejection_reason': 'Too short duration',
-                    'duration': duration,
-                    'file_size': file_size
-                }
-
-            # If we have 28 voice segments and reasonable file size/duration, accept it
-            print(f"   ✅ Accepting file based on: duration={duration:.1f}s, size={file_size}B")
+            size = os.path.getsize(file_path)
+            if size < 1000:  # Too small
+                return False
             
+            # Get duration
+            cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', file_path]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            duration = float(result.stdout.strip())
+            
+            return duration >= 0.5  # At least 0.5 seconds
+            
+        except:
+            return False
+
+    def _analyze_extracted_speech(self, file_path: str, language: str) -> Dict:
+        """Analyze the final extracted speech"""
+        try:
+            with sr.AudioFile(file_path) as source:
+                audio_data = self.recognizer.record(source)
+                text = self.recognizer.recognize_google(audio_data, language=language)
+                
+                return {
+                    'extracted_text': text,
+                    'word_count': len(text.split()) if text else 0,
+                    'language_detected': language,
+                    'confidence': min(0.9, len(text) / 100) if text else 0
+                }
+        except:
             return {
-                'is_acceptable': True,
-                'duration': duration,
-                'file_size': file_size,
-                'final_text': f'Validated by basic metrics - {duration:.1f}s duration, {file_size}B size',
-                'final_confidence': 0.7,
-                'validation_method': 'basic_metrics'
+                'extracted_text': '',
+                'word_count': 0,
+                'language_detected': language,
+                'confidence': 0
             }
 
-        except Exception as e:
-            return {
-                'is_acceptable': False,
-                'rejection_reason': f'Quality check error: {str(e)[:30]}',
-                'file_size': 0
-            }
-
-
-
-    def _convert_to_wav(self, audio_file: str) -> str:
-        """Convert audio file to WAV format"""
+    def _detect_language(self, username: str) -> str:
+        """Detect language from username"""
+        username_lower = username.lower()
         
-        if audio_file.lower().endswith('.wav'):
-            return audio_file
+        # Russian
+        if any(c in username_lower for c in 'йцукенгшщзхъфывапролджэячсмитьбю'):
+            return 'ru-RU'
+        # Spanish
+        elif any(c in username_lower for c in 'ñáéíóúü'):
+            return 'es-ES'
+        # German
+        elif any(c in username_lower for c in 'äöüß'):
+            return 'de-DE'
+        # French
+        elif any(c in username_lower for c in 'àâäçéèêëïîôùûüÿñæœ'):
+            return 'fr-FR'
+        else:
+            return self.default_language
+
+    def _convert_to_wav(self, file_path: str) -> str:
+        """Convert audio to WAV format"""
+        if file_path.lower().endswith('.wav'):
+            return file_path
         
         temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_wav.close()
         
-        cmd = [
-            'ffmpeg', '-i', audio_file,
-            '-acodec', 'pcm_s16le',
-            '-ar', '16000',
-            '-ac', '1',
-            '-y', temp_wav.name
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        cmd = ['ffmpeg', '-i', file_path, '-ac', '1', '-ar', '16000', '-y', temp_wav.name]
+        result = subprocess.run(cmd, capture_output=True)
         
         if result.returncode == 0:
             return temp_wav.name
@@ -479,146 +362,109 @@ class AdvancedVoiceProcessor:
             os.unlink(temp_wav.name)
             raise Exception("Audio conversion failed")
 
-    def _extract_file_metadata(self, filename: str) -> Dict:
+    def _extract_metadata(self, filename: str) -> Dict:
         """Extract metadata from filename"""
-        
-        # Expected format: username_platform_v#_timestamp.mp3
-        parts = filename.replace('.mp3', '').replace('.wav', '').split('_')
+        parts = filename.replace('.mp3', '').replace('.wav', '').replace('.m4a', '').split('_')
         
         return {
             'original_filename': filename,
             'username': parts[0] if parts else 'unknown',
-            'platform': parts if len(parts) > 1 else 'unknown',
-            'video_number': parts if len(parts) > 2 else 'v1',
-            'timestamp': parts if len(parts) > 3 else str(int(time.time()))
+            'platform': parts[1] if len(parts) > 1 else 'unknown',
+            'video_number': parts[2] if len(parts) > 2 else 'v1',
+            'timestamp': parts[3] if len(parts) > 3 else str(int(time.time()))
         }
 
     def save_results(self, results: List[Dict]) -> str:
         """Save processing results to CSV"""
-        
         if not results:
-            print("❌ No results to save")
             return ""
         
-        # Flatten results for CSV
-        flattened_results = []
+        data = []
         for result in results:
-            flat_result = {
-                'original_filename': result.get('original_filename', ''),
-                'username': result.get('username', ''),
-                'platform': result.get('platform', ''),
-                'original_file': result.get('original_file', ''),
-                'voice_only_file': result.get('voice_only_file', ''),
+            data.append({
+                'original_filename': result.get('original_filename'),
+                'username': result.get('username'),
+                'platform': result.get('platform'),
+                'language': result.get('language'),
                 'voice_duration': result.get('voice_duration', 0),
-                'total_voice_segments': result.get('total_voice_segments', 0),
-                'processing_status': result.get('processing_status', ''),
-                
-                # Speech analysis
-                'combined_text': result.get('speech_analysis', {}).get('combined_text', ''),
-                'word_count': result.get('speech_analysis', {}).get('word_count', 0),
-                'speech_confidence': result.get('speech_analysis', {}).get('speech_confidence', 0),
-                'recognition_rate': result.get('speech_analysis', {}).get('recognition_rate', 0),
-                
-                # Final analysis
-                'final_duration': result.get('final_analysis', {}).get('duration', 0),
-                'final_file_size': result.get('final_analysis', {}).get('file_size', 0),
-                'final_text': result.get('final_analysis', {}).get('final_text', ''),
-                'final_confidence': result.get('final_analysis', {}).get('final_confidence', 0)
-            }
-            flattened_results.append(flat_result)
+                'total_segments': result.get('total_segments', 0),
+                'extracted_text': result.get('speech_info', {}).get('extracted_text', ''),
+                'word_count': result.get('speech_info', {}).get('word_count', 0),
+                'voice_only_file': result.get('voice_only_file')
+            })
         
-        # Save to CSV
-        timestamp = int(time.time())
-        results_file = os.path.join(self.analysis_dir, f"voice_processing_results_{timestamp}.csv")
-        
-        df = pd.DataFrame(flattened_results)
-        df.to_csv(results_file, index=False)
-        
-        print(f"📁 Results saved: {results_file}")
-        return results_file
+        csv_file = os.path.join(self.analysis_dir, f"voice_extraction_results_{int(time.time())}.csv")
+        pd.DataFrame(data).to_csv(csv_file, index=False)
+        print(f"📄 Results saved: {csv_file}")
+        return csv_file
 
     def generate_report(self, results: List[Dict]) -> str:
-        """Generate comprehensive processing report"""
-        
-        report_file = os.path.join(self.analysis_dir, "voice_processing_report.txt")
+        """Generate processing report"""
+        report_file = os.path.join(self.analysis_dir, "voice_extraction_report.txt")
         
         with open(report_file, 'w', encoding='utf-8') as f:
-            f.write("🎤 ADVANCED VOICE PROCESSING REPORT\n")
-            f.write("=" * 60 + "\n\n")
+            f.write("🎤 VOICE EXTRACTION REPORT\n")
+            f.write("=" * 50 + "\n\n")
             f.write(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total files processed: {len(results)}\n")
-            f.write(f"Voice-only files created: {len([r for r in results if r.get('processing_status') == 'success'])}\n")
-            f.write(f"Processing method: Voice Activity Detection + Speech Recognition\n")
-            f.write(f"Output directory: {self.voice_only_dir}\n\n")
+            f.write(f"Files processed: {len(results)}\n")
             
-            f.write("🎯 PROCESSING STRATEGY:\n")
-            f.write("1. Voice Activity Detection (VAD) - Identify voice segments\n")
-            f.write("2. Speech Recognition Analysis - Verify speech content\n")
-            f.write("3. Music/Voice Separation - Extract voice-only segments\n")
-            f.write("4. Segment Combination - Merge voice segments\n")
-            f.write("5. Quality Verification - Final quality check\n\n")
+            total_duration = sum(r.get('voice_duration', 0) for r in results)
+            f.write(f"Total voice extracted: {total_duration:.1f} seconds\n\n")
             
-            # Statistics
-            successful = [r for r in results if r.get('processing_status') == 'success']
-            total_voice_duration = sum(r.get('voice_duration', 0) for r in successful)
-            avg_segments = np.mean([r.get('total_voice_segments', 0) for r in successful]) if successful else 0
+            # Language breakdown
+            languages = {}
+            for r in results:
+                lang = r.get('language', 'unknown')
+                languages[lang] = languages.get(lang, 0) + 1
             
-            f.write("📊 PROCESSING STATISTICS:\n")
-            f.write(f"Success rate: {len(successful)}/{len(results)} ({len(successful)/len(results)*100:.1f}%)\n")
-            f.write(f"Total voice duration extracted: {total_voice_duration:.1f} seconds\n")
-            f.write(f"Average voice segments per file: {avg_segments:.1f}\n")
-            f.write(f"Average voice duration per file: {total_voice_duration/len(successful):.1f}s\n" if successful else "Average voice duration per file: 0s\n")
+            f.write("🌍 LANGUAGES DETECTED:\n")
+            for lang, count in languages.items():
+                f.write(f"  {lang}: {count} files\n")
             
-            f.write(f"\n✅ SUCCESSFULLY PROCESSED FILES:\n")
-            f.write("-" * 40 + "\n")
-            
-            for i, result in enumerate(successful, 1):
-                f.write(f"{i:2d}. {result.get('original_filename', 'N/A')}\n")
-                f.write(f"    👤 User: @{result.get('username', 'unknown')}\n")
-                f.write(f"    🔗 Platform: {result.get('platform', 'unknown')}\n")
-                f.write(f"    ⏱️ Voice Duration: {result.get('voice_duration', 0):.1f}s\n")
-                f.write(f"    📊 Voice Segments: {result.get('total_voice_segments', 0)}\n")
-                f.write(f"    💬 Speech: \"{result.get('speech_analysis', {}).get('combined_text', '')[:60]}...\"\n")
-                f.write(f"    📁 Voice File: {os.path.basename(result.get('voice_only_file', ''))}\n\n")
+            f.write("\n📁 EXTRACTED FILES:\n")
+            for i, result in enumerate(results, 1):
+                f.write(f"{i}. {result.get('original_filename')}\n")
+                f.write(f"   User: {result.get('username')} | Platform: {result.get('platform')}\n")
+                f.write(f"   Language: {result.get('language')} | Duration: {result.get('voice_duration', 0):.1f}s\n")
+                f.write(f"   Text: {result.get('speech_info', {}).get('extracted_text', '')[:100]}...\n")
+                f.write(f"   Output: {os.path.basename(result.get('voice_only_file', ''))}\n\n")
         
-        print(f"📄 Processing report saved: {report_file}")
+        print(f"📋 Report saved: {report_file}")
         return report_file
 
-# Command line interface
+# Command line usage
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Advanced Voice Processor - Extract Voice-Only Audio Segments")
-    parser.add_argument("audio_dir", help="Directory containing audio files to process")
+    parser = argparse.ArgumentParser(description="Extract voice-only segments from audio files")
+    parser.add_argument("audio_dir", help="Directory containing MP3/audio files")
     parser.add_argument("--output-dir", default="voice_analysis", help="Output directory")
-    parser.add_argument("--min-confidence", type=float, default=0.6, help="Minimum voice confidence")
-    parser.add_argument("--min-segment-length", type=float, default=2.0, help="Minimum voice segment length")
+    parser.add_argument("--min-confidence", type=float, default=0.6, help="Minimum voice confidence (0.0-1.0)")
+    parser.add_argument("--min-length", type=float, default=1.0, help="Minimum segment length in seconds")
     
     args = parser.parse_args()
     
     if not os.path.exists(args.audio_dir):
-        print(f"❌ Audio directory not found: {args.audio_dir}")
+        print(f"❌ Directory not found: {args.audio_dir}")
         exit(1)
     
-    # Process audio files
+    # Process files
     processor = AdvancedVoiceProcessor(
         output_dir=args.output_dir,
         min_voice_confidence=args.min_confidence,
-        voice_segment_min_length=args.min_segment_length
+        voice_segment_min_length=args.min_length
     )
     
     results = processor.process_audio_directory(args.audio_dir)
     
     if results:
-        # Save results and generate report
-        results_file = processor.save_results(results)
+        csv_file = processor.save_results(results)
         report_file = processor.generate_report(results)
         
-        print(f"\n🎤 ADVANCED VOICE PROCESSING COMPLETED!")
-        print(f"✅ Successfully processed: {len(results)} files")
+        print(f"\n🎉 PROCESSING COMPLETE!")
+        print(f"✅ Voice extracted from {len(results)} files")
         print(f"📁 Voice-only files: {processor.voice_only_dir}")
-        print(f"📊 Results CSV: {results_file}")
-        print(f"📄 Report: {report_file}")
-        
+        print(f"📄 Results: {csv_file}")
+        print(f"📋 Report: {report_file}")
     else:
-        print("❌ No files could be processed successfully")
+        print("❌ No voice detected in any files")
