@@ -827,82 +827,40 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print("💡 Also ensure the confirmed voice links are accessible")
 
 
-def run_stage7_only(extracted_samples_file, output_dir="output"):
+def run_stage7_only(input_path, output_dir="output"):
     """Run only Stage 7: Audio Content Filtering (Voice-Only Detection)"""
     print("🔍 STAGE 7 ONLY: Audio Content Filtering (Voice-Only Detection)")
     print("=" * 50)
 
-    # Load extracted samples
-    if not os.path.exists(extracted_samples_file):
-        print(f"❌ Extracted samples file not found: {extracted_samples_file}")
+    # Check if input is a directory
+    if not os.path.isdir(input_path):
+        print(f"❌ Input path is not a directory: {input_path}")
+        print("💡 Stage 7 now only accepts audio directories as input")
         return
 
-    try:
-        df = pd.read_csv(extracted_samples_file)
-        extracted_samples = df.to_dict('records')
-        print(f"📥 Loaded {len(extracted_samples)} audio samples from: {extracted_samples_file}")
-    except Exception as e:
-        print(f"❌ Error loading extracted samples: {e}")
-        return
-
-    if not extracted_samples:
-        print("❌ No audio samples found in file")
-        return
-
-    # Use AdvancedVoiceProcessor
+    print(f"📁 Processing audio directory: {input_path}")
+    
+    # Use AdvancedVoiceProcessor directly on the audio directory
     processor = AdvancedVoiceProcessor(
         output_dir=os.path.join(output_dir, "audio_analysis"),
         min_voice_confidence=0.6,
         voice_segment_min_length=2.0
     )
-
-    # Create temporary directory with audio files for processing
-    temp_audio_dir = os.path.join(output_dir, "temp_audio_for_processing")
-    os.makedirs(temp_audio_dir, exist_ok=True)
-
-    # Copy/link audio files to temp directory for batch processing
-    for sample in extracted_samples:
-        sample_file = sample.get('sample_file')
-        if sample_file and os.path.exists(sample_file):
-            import shutil
-            dest_file = os.path.join(temp_audio_dir, os.path.basename(sample_file))
-            if not os.path.exists(dest_file):
-                shutil.copy2(sample_file, dest_file)
-
-    # Process the audio directory
-    voice_only_results = processor.process_audio_directory(temp_audio_dir)
-
+    
+    # Process the audio directory directly
+    voice_only_results = processor.process_audio_directory(input_path)
+    
     if voice_only_results:
         # Save results
         results_file = processor.save_results(voice_only_results)
         report_file = processor.generate_report(voice_only_results)
-
-        # Save simplified CSV for compatibility
-        base_name = os.path.splitext(os.path.basename(extracted_samples_file))[0]
-        voice_only_file = os.path.join(output_dir, f"7_{base_name}_voice_only.csv")
-
-        simplified_results = []
-        for result in voice_only_results:
-            simplified_results.append({
-                'processed_username': result.get('username', 'unknown'),
-                'platform_source': result.get('platform', 'unknown'),
-                'voice_only_file': result.get('voice_only_file', ''),
-                'speech_text': result.get('speech_analysis', {}).get('combined_text', ''),
-                'voice_confidence': result.get('final_analysis', {}).get('final_confidence', 0),
-                'word_count': result.get('speech_analysis', {}).get('word_count', 0),
-                'voice_duration': result.get('voice_duration', 0)
-            })
-
-        pd.DataFrame(simplified_results).to_csv(voice_only_file, index=False)
-
+        
         print(f"✅ Stage 7 completed!")
         print(f"🎤 Voice-only samples found: {len(voice_only_results)}")
-        print(f"📁 Voice-only results: {voice_only_file}")
         print(f"📄 Advanced analysis report: {report_file}")
         print(f"🎵 Voice-only audio files: {processor.voice_only_dir}")
-        print(f"📈 Voice detection rate: {(len(voice_only_results) / len(extracted_samples) * 100):.1f}%")
         print(f"💡 Next: Run Stage 8 with --stage8-only {processor.voice_only_dir}")
-
+        
         # Show sample results
         print(f"\n🎤 Sample Voice-Only Content:")
         for i, result in enumerate(voice_only_results[:3], 1):
@@ -911,15 +869,13 @@ def run_stage7_only(extracted_samples_file, output_dir="output"):
             confidence = result.get('final_analysis', {}).get('final_confidence', 0)
             word_count = result.get('speech_analysis', {}).get('word_count', 0)
             print(f" {i}. @{username} | \"{speech_text}...\" | {confidence:.2f} confidence ({word_count} words)")
+            
     else:
         print("❌ No voice-only samples found")
         print("💡 Try lowering minimum confidence or check audio quality")
-        print("💡 All samples may contain music or non-voice content")
 
-    # Cleanup temp directory
-    import shutil
-    if os.path.exists(temp_audio_dir):
-        shutil.rmtree(temp_audio_dir)
+    return voice_only_results
+
 
 
 def run_stage8_only(wavs_dir, output_dir="voice_analysis", nr_mode="quick", nr_noise_file=None, nr_sr=16000, nr_highpass=80, nr_lowpass=6000, nr_db=24.0, nr_floor=-40.0):
@@ -1038,7 +994,7 @@ INDIVIDUAL STAGES:
 --stage4_5-only FILE         Run only Stage 4.5 (Audio Content Detection)
 --stage5-only FILE           Run only Stage 5 (Voice Verification)
 --stage6-only FILE           Run only Stage 6 (Voice Sample Extraction)
---stage7-only FILE           Run only Stage 7 (Voice-Only Filtering)
+--stage7-only DIR            Run only Stage 7 (Voice-Only Filtering) - takes audio directory
 --stage8-only DIR            Run only Stage 8 (Noise Reduction on WAV directory)
 --stage9-only DIR            Run only Stage 9 (Speaker 1 Extraction on audio directory)
 
