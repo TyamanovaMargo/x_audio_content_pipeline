@@ -210,4 +210,5 @@ data/
 !output/processed_accounts.json
 results/
 config.py
+
 config.json
