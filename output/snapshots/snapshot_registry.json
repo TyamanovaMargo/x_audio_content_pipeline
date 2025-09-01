@@ -232,5 +232,21 @@
     "account_stats": {
       "exists": 107
     }
+  },
+  "s_mf12fw701lf3aea74u": {
+    "snapshot_id": "s_mf12fw701lf3aea74u",
+    "created_at": "2025-09-01T14:58:04.720930",
+    "status": "pending",
+    "total_accounts": 4,
+    "accounts_file": "output/snapshots/s_mf12fw701lf3aea74u_accounts.csv",
+    "usernames": [
+      "CDawgVA",
+      "arinushika",
+      "sekirodubi",
+      "TealaSmile"
+    ],
+    "account_stats": {
+      "exists": 4
+    }
   }
 }
