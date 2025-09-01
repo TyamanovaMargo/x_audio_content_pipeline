@@ -8,8 +8,7 @@ from step1_validate_accounts import AccountValidator
 from step2_bright_data_trigger import BrightDataTrigger
 from step3_bright_data_download import BrightDataDownloader
 from step4_audio_filter import AudioContentFilter
-from step4_5_audio_detector import AudioContentDetector
-from step5_voice_verification import VoiceContentVerifier
+from step5_audio_detector import AudioContentDetector
 from step6_voice_sample_extractor import VoiceSampleExtractor
 from step6_5_overlap_detector import OverlapDetector
 from step7_diarization_processor import Step7DiarizationProcessor
@@ -132,8 +131,8 @@ def main(input_file, force_recheck=False):
     for platform, count in platform_counts.items():
         print(f" {platform}: {count}")
 
-    # Stage 4.5: YouTube, Twitch & TikTok Audio Content Detection
-    print("\n🎵 STAGE 4.5: YouTube, Twitch & TikTok Audio Content Detection")
+    # Stage 5: YouTube, Twitch & TikTok Audio Content Detection
+    print("\n🎵 STAGE 5: YouTube, Twitch & TikTok Audio Content Detection")
     print("-" * 60)
     
     # Initialize enhanced detector WITHOUT Twitch API
@@ -171,63 +170,6 @@ def main(input_file, force_recheck=False):
     for confidence, count in confidence_levels.items():
         print(f" {confidence}: {count}")
 
-    # Stage 5: YouTube, Twitch & TikTok Voice Content Verification
-    print("\n🎙️ STAGE 5: YouTube, Twitch & TikTok Voice Content Verification")
-    print("-" * 60)
-    
-    voice_verifier = VoiceContentVerifier(timeout=15)
-    verified_links = voice_verifier.verify_voice_content(audio_detected_links)
-    
-    # Save all verification results
-    verified_file = os.path.join(cfg.OUTPUT_DIR, f"5_snapshot_{snapshot_id}_verified_voice.csv")
-    pd.DataFrame(verified_links).to_csv(verified_file, index=False)
-    print(f"📁 Saved verification results to: {verified_file}")
-    
-    # Save only confirmed voice content
-    confirmed_voice = [link for link in verified_links if link.get('has_voice')]
-    
-    if confirmed_voice:
-        confirmed_file = os.path.join(cfg.OUTPUT_DIR, f"5_snapshot_{snapshot_id}_confirmed_voice.csv")
-        pd.DataFrame(confirmed_voice).to_csv(confirmed_file, index=False)
-        print(f"🎙️ Found {len(confirmed_voice)} confirmed voice content links!")
-        print(f"📁 Saved to: {confirmed_file}")
-        
-        # Detailed voice content analysis
-        voice_types = {}
-        platforms = {}
-        confidence_levels = {}
-        for link in confirmed_voice:
-            voice_type = link.get('voice_type', 'unknown')
-            platform = link.get('platform_type', 'unknown')
-            confidence = link.get('voice_confidence', 'unknown')
-            voice_types[voice_type] = voice_types.get(voice_type, 0) + 1
-            platforms[platform] = platforms.get(platform, 0) + 1
-            confidence_levels[confidence] = confidence_levels.get(confidence, 0) + 1
-        
-        print("\n📊 Voice Content Analysis:")
-        print(" Voice Types:")
-        for voice_type, count in sorted(voice_types.items(), key=lambda x: x[1], reverse=True):
-            print(f" {voice_type}: {count}")
-        print(" Platforms:")
-        for platform, count in sorted(platforms.items(), key=lambda x: x[1], reverse=True):
-            print(f" {platform}: {count}")
-        print(" Confidence Levels:")
-        for confidence, count in confidence_levels.items():
-            print(f" {confidence}: {count}")
-        
-        # Show sample confirmed voice links
-        print("\n🎙️ Sample Confirmed Voice Content:")
-        for i, link in enumerate(confirmed_voice[:3], 1):
-            username = link.get('username', 'unknown')
-            voice_type = link.get('voice_type', 'unknown')
-            confidence = link.get('voice_confidence', 'unknown')
-            url = link.get('url', '')[:60] + '...' if len(link.get('url', '')) > 60 else link.get('url', '')
-            print(f" {i}. @{username} | {voice_type} | {confidence} confidence")
-            print(f" {url}")
-    else:
-        print("❌ No voice content confirmed after verification")
-        print("💡 This means the YouTube/Twitch links found were likely music or non-voice content")
-        confirmed_voice = []
 
     # Stage 6: Voice Sample Extraction (Outputs MP3 files)
     print("\n🎤 STAGE 6: Voice Sample Extraction (MP3 Output)")
@@ -434,7 +376,7 @@ def main(input_file, force_recheck=False):
     print(f"📈 Clean chunk rate: {(len(clean_chunks) / len(extracted_samples) * 100):.1f}%" if 'extracted_samples' in locals() and extracted_samples and 'clean_chunks' in locals() else "0%")
     print(f"🆔 Snapshot ID: {snapshot_id}")
     print(f"📁 Results saved in: {cfg.OUTPUT_DIR}")
-    print(f"🔄 Pipeline order: 1 → 2 → 3 → 4 → 4.5 → 5 → 6 → 6.5 → 7")
+    print(f"🔄 Pipeline order: 1 → 2 → 3 → 4 → 5 → 5 → 6 → 6.5 → 7")
     print(f"🎵 Audio format flow: MP3 (Stage 6) → WAV (Stage 6.5) → Processed WAV (Stage 7)")
 
     # Final output files summary
@@ -600,13 +542,13 @@ def run_stage4_only(links_file):
     for platform, count in platform_counts.items():
         print(f" {platform}: {count}")
     print(f"📁 Audio file: {audio_file}")
-    print(f"💡 Next: Run Stage 4.5 with --stage4_5-only {audio_file}")
+    print(f"💡 Next: Run Stage 5 with --stage4_5-only {audio_file}")
     
     return audio_file
 
 def run_stage4_5_only(audio_links_file):
-    """Run only Stage 4.5: Enhanced Audio Content Detection (No API)"""
-    print("🎵 STAGE 4.5 ONLY: Enhanced YouTube, Twitch & TikTok Audio Content Detection")
+    """Run only Stage 5: Enhanced Audio Content Detection (No API)"""
+    print("🎵 STAGE 5 ONLY: Enhanced YouTube, Twitch & TikTok Audio Content Detection")
     print("=" * 50)
     
     if not os.path.exists(audio_links_file):
@@ -648,7 +590,7 @@ def run_stage4_5_only(audio_links_file):
         audio_types[audio_type] = audio_types.get(audio_type, 0) + 1
         confidence_levels[confidence] = confidence_levels.get(confidence, 0) + 1
     
-    print(f"✅ Stage 4.5 completed!")
+    print(f"✅ Stage 5 completed!")
     print(f"🔊 Audio content detected: {len(audio_detected_links)}")
     print("📊 Audio Content Breakdown:")
     print(" Audio Types:")
@@ -888,70 +830,30 @@ def run_stage7_only(clean_audio_dir, output_dir="stage7_output"):
             
     except Exception as e:
         print(f"❌ Stage 7 diarization processing error: {e}")
-
 def show_help():
-    """Show detailed usage help"""
     help_text = """
 🎙️ YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE
 
-This pipeline includes MP3 to WAV conversion handling:
-- Stages 1-6: Original pipeline (Account validation → Voice sample extraction - MP3)  
-- Stage 6.5: Audio chunking, overlap detection + MP3→WAV conversion
-- Stage 7: Diarization processing (WAV input/output)
-
-AUDIO FORMAT FLOW:
-Stage 6: MP3 output → Stage 6.5: MP3→WAV conversion → Stage 7: WAV processing
-
 PIPELINE FLOW:
-1→2→3→4→4.5→5→6→6.5→7
-
-USAGE:
-python main_pipeline.py [options]
-
-FULL PIPELINE:
---input FILE                Run full pipeline
+1→2→3→4→5→6→6.5→7  (Step 5 removed)
 
 INDIVIDUAL STAGES:
---stage1-only FILE         Stage 1: Account Validation
---stage2-only FILE         Stage 2: Bright Data Trigger  
---stage3-only SNAPSHOT_ID  Stage 3: Data Download
---stage4-only FILE         Stage 4: YouTube/Twitch Filter
---stage4_5-only FILE       Stage 4.5: Audio Content Detection
---stage5-only FILE         Stage 5: Voice Verification
---stage6-only FILE         Stage 6: Voice Sample Extraction (MP3 output)
---stage6_5-only FILE       Stage 6.5: Audio Chunking & Overlap Detection (MP3→WAV)
---stage7-only DIR          Stage 7: Diarization Processing (WAV input)
+--stage1-only FILE     Stage 1: Account Validation
+--stage2-only FILE     Stage 2: Bright Data Trigger  
+--stage3-only SNAPSHOT Stage 3: Data Download
+--stage4-only FILE     Stage 4: YouTube/Twitch Filter
+--stage5-only FILE     Stage 5: Audio Detection (FINAL VOICE DECISION)
+--stage6-only FILE     Stage 6: Voice Sample Extraction
+--stage6_5-only FILE   Stage 6.5: Audio Chunking & Overlap Detection
+--stage7-only DIR      Stage 7: Diarization Processing
 
-INFORMATION:
---show-log                 Show account validation log
---show-snapshots          Show snapshot summary
---clear-log               Clear processed accounts log
---help-detailed           Show this help
-
-EXAMPLES:
-Full pipeline:
-python main_pipeline.py --input usernames.csv
-
-Stage by stage:
-python main_pipeline.py --stage1-only usernames.csv
-python main_pipeline.py --stage6_5-only output/6_voice_samples.csv
-python main_pipeline.py --stage7-only output/clean_chunks
-
-AUDIO FORMAT NOTES:
-- Stage 6 outputs MP3 files (192kbps)
-- Stage 6.5 converts MP3 to WAV (16kHz mono) and removes overlapping voices
-- Stage 7 processes WAV files for diarization
-- All temporary conversion files are cleaned automatically
-
-DEPENDENCIES:
-pip install requests pandas yt-dlp torch torchaudio pyannote.audio speechbrain ffmpeg
-
-CONFIGURATION:
-- Add HUGGINGFACE_TOKEN to config.py
-- Accept license at https://huggingface.co/pyannote/speaker-diarization-3.1
-- Ensure ffmpeg is installed for MP3→WAV conversion
+NOTES:
+- Step 5 (Voice Verification) removed - using VAD results from step 4.5
+- Step 4.5 now makes final decision on voice presence
 """
     print(help_text)
+
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -967,8 +869,7 @@ if __name__ == "__main__":
     parser.add_argument("--stage2-only", help="Run only Stage 2 - Bright Data trigger")
     parser.add_argument("--stage3-only", help="Run only Stage 3 - Data download")
     parser.add_argument("--stage4-only", help="Run only Stage 4 - Platform filtering")
-    parser.add_argument("--stage4_5-only", help="Run only Stage 4.5 - Audio detection")
-    parser.add_argument("--stage5-only", help="Run only Stage 5 - Voice verification")
+    parser.add_argument("--stage5-only", help="Run only Stage 5 - Audio detection")
     parser.add_argument("--stage6-only", help="Run only Stage 6 - Voice sample extraction (MP3)")
     parser.add_argument("--stage6_5-only", help="Run only Stage 6.5 - Audio chunking & overlap detection (MP3→WAV)")
     parser.add_argument("--stage7-only", help="Run only Stage 7 - Diarization processing (WAV)")
@@ -1012,19 +913,13 @@ if __name__ == "__main__":
         run_stage4_only(args.stage4_only)
         sys.exit(0)
     
-    if args.stage4_5_only:
+    if args.stage5_only:
         if not os.path.exists(args.stage4_5_only):
             print(f"❌ Audio links file not found: {args.stage4_5_only}")
             sys.exit(1)
         run_stage4_5_only(args.stage4_5_only)
         sys.exit(0)
     
-    if args.stage5_only:
-        if not os.path.exists(args.stage5_only):
-            print(f"❌ Audio links file not found: {args.stage5_only}")
-            sys.exit(1)
-        run_stage5_only(args.stage5_only, "output")
-        sys.exit(0)
     
     if args.stage6_only:
         if not os.path.exists(args.stage6_only):
