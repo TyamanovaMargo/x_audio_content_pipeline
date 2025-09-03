@@ -212,3 +212,5 @@ results/
 config.py
 
 config.json
+voice_samples/
+*.mp3
