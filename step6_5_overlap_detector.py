@@ -410,3 +410,58 @@ class OverlapDetector:
         except Exception as e:
             self.logger.error(f"❌ Failed to generate report: {e}")
             return ""
+    def process_audio_directory(self, audio_dir: str) -> List[Dict]:
+        """
+        Process audio files directly from directory
+        
+        Args:
+            audio_dir: Directory containing audio files from Stage 6
+        
+        Returns:
+            List of clean chunk dictionaries
+        """
+        if not os.path.exists(audio_dir):
+            self.logger.error(f"❌ Audio directory not found: {audio_dir}")
+            return []
+        
+        # Find all audio files in directory
+        audio_extensions = ['.mp3', '.wav', '.m4a', '.aac']
+        audio_files = []
+        
+        for file in os.listdir(audio_dir):
+            if any(file.lower().endswith(ext) for ext in audio_extensions):
+                full_path = os.path.join(audio_dir, file)
+                if os.path.isfile(full_path):
+                    audio_files.append(full_path)
+        
+        if not audio_files:
+            self.logger.info("🔍 No audio files found in directory")
+            return []
+        
+        self.logger.info(f"🔍 STAGE 6.5: Audio Chunking and Overlap Detection")
+        self.logger.info(f"📊 Processing {len(audio_files)} audio files from directory")
+        self.logger.info(f"📁 Source directory: {audio_dir}")
+        self.logger.info(f"✂️ Chunk duration: {self.chunk_duration_minutes} minutes")
+        self.logger.info(f"🎯 Overlap threshold: {self.overlap_threshold * 100}%")
+        
+        # Convert audio files to extracted_samples format
+        extracted_samples = []
+        for audio_file in audio_files:
+            filename = os.path.basename(audio_file)
+            # Extract username and platform from filename if possible
+            # Assume format: username_platform_timestamp.mp3
+            parts = filename.split('_')
+            username = parts[0] if len(parts) > 0 else 'unknown'
+            platform = parts[1] if len(parts) > 1 else 'unknown'
+            
+            sample_data = {
+                'sample_file': audio_file,
+                'sample_filename': filename,
+                'processed_username': username,
+                'platform_source': platform,
+                'file_size_bytes': os.path.getsize(audio_file)
+            }
+            extracted_samples.append(sample_data)
+        
+        # Use existing process_extracted_samples method
+        return self.process_extracted_samples(extracted_samples)

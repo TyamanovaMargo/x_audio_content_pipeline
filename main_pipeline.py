@@ -719,71 +719,60 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print("❌ No voice samples could be extracted")
         print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
 
-def run_stage6_5_only(extracted_samples_file, output_dir="output"):
-    """Run only Stage 6.5: Audio Chunking and Overlap Detection (MP3 → WAV)"""
-    print("🔍 STAGE 6.5 ONLY: Audio Chunking and Overlap Detection (MP3 → WAV)")
+def run_stage6_5_only(input_path, output_dir="output"):
+    """Run only Stage 6.5: Audio Chunking and Overlap Detection"""
+    print("🔍 STAGE 6.5 ONLY: Audio Chunking and Overlap Detection")
     print("=" * 50)
     
-    if not os.path.exists(extracted_samples_file):
-        print(f"❌ Extracted samples file not found: {extracted_samples_file}")
-        return
-    
-    try:
-        df = pd.read_csv(extracted_samples_file)
-        extracted_samples = df.to_dict('records')
-        print(f"📥 Loaded {len(extracted_samples)} extracted samples from: {extracted_samples_file}")
-    except Exception as e:
-        print(f"❌ Error loading extracted samples: {e}")
-        return
-    
-    if not extracted_samples:
-        print("❌ No extracted samples found in file")
-        return
-    
-    # Check if samples are MP3
-    mp3_count = sum(1 for sample in extracted_samples 
-                   if sample.get('sample_filename', '').lower().endswith('.mp3'))
-    print(f"🎵 Found {mp3_count} MP3 files to process")
-    
-    cfg = Config()
-    
-    overlap_detector = OverlapDetector(
-        output_dir=os.path.join(output_dir, "clean_chunks"),
-        chunk_duration_minutes=5,
-        overlap_threshold=0.3,
-        huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
-    )
-    
-    print("🔄 Converting MP3 to WAV and detecting overlaps...")
-    clean_chunks = overlap_detector.process_extracted_samples(extracted_samples)
-    
-    if clean_chunks:
-        # Save results
-        base_name = os.path.splitext(os.path.basename(extracted_samples_file))[0]
-        clean_chunks_file = os.path.join(output_dir, f"6_5_{base_name}_clean_chunks.csv")
-        pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
+    # Check if input is directory or CSV file
+    if os.path.isdir(input_path):
+        # Process audio files directly from directory
+        print(f"📁 Processing audio files from directory: {input_path}")
         
-        # Generate report
-        report_file = overlap_detector.generate_report(clean_chunks)
+        cfg = Config()
+        overlap_detector = OverlapDetector(
+            output_dir=os.path.join(output_dir, "clean_chunks"),
+            chunk_duration_minutes=5,
+            overlap_threshold=0.3,
+            huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
+        )
         
-        print(f"✅ Stage 6.5 completed!")
-        print(f"🔍 Clean chunks created: {len(clean_chunks)}")
-        print(f"📁 Clean chunks directory: {overlap_detector.output_dir}")
-        print(f"📄 Report: {report_file}")
-        print(f"📊 Results CSV: {clean_chunks_file}")
-        print(f"🔄 Format conversion: MP3 → WAV (16kHz mono)")
-        print(f"💡 Next: Run Stage 7 with --stage7-only {overlap_detector.output_dir}")
+        clean_chunks = overlap_detector.process_audio_directory(input_path)
         
-        # Show sample WAV outputs
-        print(f"\n🎵 Sample Clean WAV Chunks:")
-        for i, chunk in enumerate(clean_chunks[:3], 1):
-            clean_file = chunk.get('clean_chunk_file', 'N/A')
-            username = chunk.get('processed_username', 'unknown')
-            platform = chunk.get('platform_source', 'unknown')
-            print(f" {i}. {os.path.basename(clean_file)} (@{username} {platform}, WAV)")
-        
+        if clean_chunks:
+            # Save results
+            timestamp = int(time.time())
+            clean_chunks_file = os.path.join(output_dir, f"6_5_audio_dir_{timestamp}_clean_chunks.csv")
+            pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
+            
+            # Generate report
+            report_file = overlap_detector.generate_report(clean_chunks)
+            
+            print(f"✅ Stage 6.5 completed!")
+            print(f"🔍 Clean chunks created: {len(clean_chunks)}")
+            print(f"📁 Clean chunks directory: {overlap_detector.output_dir}")
+            print(f"📄 Report: {report_file}")
+            print(f"📊 Results CSV: {clean_chunks_file}")
+            print(f"💡 Next: Run Stage 7 with --stage7-only {overlap_detector.output_dir}")
+        else:
+            print("❌ No clean chunks found")
+            
     else:
-        print("❌ No clean chunks found - all audio had overlapping voices")
+        # Existing CSV file processing
+        if not os.path.exists(input_path):
+            print(f"❌ Input file/directory not found: {input_path}")
+            return
+            
+        # Original CSV processing code here...
+        try:
+            df = pd.read_csv(input_path)
+            extracted_samples = df.to_dict('records')
+            print(f"📥 Loaded {len(extracted_samples)} extracted samples from CSV: {input_path}")
+            # ... rest of existing CSV processing
+        except Exception as e:
+            print(f"❌ Error processing input: {e}")
+            return
+
 
 def run_stage7_only(clean_audio_dir, output_dir="stage7_output"):
     """Run only Stage 7: Diarization Processing (WAV Input)"""
@@ -994,6 +983,6 @@ if __name__ == "__main__":
         print(" python main_pipeline.py --input usernames.csv")
         print(" python main_pipeline.py --stage6_5-only output/6_voice_samples.csv")
         print(" python main_pipeline.py --stage7-only output/clean_chunks")
-        print("\n🔄 Pipeline: 1→2→3→4→4.5→5→6→6.5→7")
+        print("\n🔄 Pipeline: 1→2→3→4→→5→6→6.5→7")
         print("🎵 Audio: MP3 (Stage 6) → WAV (Stage 6.5) → Processed WAV (Stage 7)")
         sys.exit(1)
