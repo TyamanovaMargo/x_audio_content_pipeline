@@ -89,6 +89,117 @@ class AudioContentFilter:
         
         return results
 
+    def filter_audio_links_enhanced(self, enhanced_links: List[Dict]) -> List[Dict]:
+        """Enhanced filter that handles both original URLs and discovered YouTube/Twitch channels"""
+        results = []
+        platform_stats = {
+            'youtube': 0, 
+            'twitch': 0, 
+            'tiktok': 0, 
+            'filtered_out': 0,
+            'channel_urls': 0,
+            'duration_filtered': 0,
+            'discovered_youtube': 0,
+            'discovered_twitch': 0
+        }
+        
+        for link_data in enhanced_links:
+            found_urls = []
+            
+            # Check original URL from profile
+            original_url = link_data.get('url', '')
+            if original_url:
+                domain = urlparse(original_url).netloc.lower()
+                for plat_domain, plat_name in self.AUDIO_PLATFORMS.items():
+                    if plat_domain in domain:
+                        found_urls.append({
+                            'url': original_url,
+                            'platform_type': plat_name,
+                            'source': 'profile_link',
+                            'score': 100  # Original links get highest score
+                        })
+                        break
+            
+            # Check discovered YouTube URL
+            youtube_url = link_data.get('youtube_url', '')
+            youtube_score = link_data.get('youtube_score', 0)
+            if youtube_url and youtube_score > 0:
+                found_urls.append({
+                    'url': youtube_url,
+                    'platform_type': 'youtube',
+                    'source': 'discovered',
+                    'score': youtube_score
+                })
+                platform_stats['discovered_youtube'] += 1
+            
+            # Check discovered Twitch URL
+            twitch_url = link_data.get('twitch_url', '')
+            twitch_score = link_data.get('twitch_score', 0)
+            if twitch_url and twitch_score > 0:
+                found_urls.append({
+                    'url': twitch_url,
+                    'platform_type': 'twitch',
+                    'source': 'discovered',
+                    'score': twitch_score
+                })
+                platform_stats['discovered_twitch'] += 1
+            
+            # Process each found URL
+            for url_info in found_urls:
+                url = url_info['url']
+                platform = url_info['platform_type']
+                source = url_info['source']
+                score = url_info['score']
+                
+                # Classify URL type
+                url_type = self._classify_url_type(url, platform)
+                
+                # Create result entry
+                result_entry = link_data.copy()  # Keep all original data
+                result_entry.update({
+                    'filtered_url': url,  # The URL we're actually using
+                    'platform_type': platform,
+                    'url_type': url_type,
+                    'discovery_source': source,
+                    'discovery_score': score
+                })
+                
+                if url_type == 'channel':
+                    result_entry['requires_video_selection'] = True
+                    platform_stats['channel_urls'] += 1
+                    print(f"📺 {source.title()} {platform} channel: @{link_data.get('username', 'unknown')}")
+                    
+                elif url_type == 'video':
+                    # Check duration for videos
+                    duration_info = self._check_video_duration(url)
+                    if duration_info and duration_info['valid']:
+                        result_entry.update(duration_info)
+                        print(f"🎬 {source.title()} {platform} video: @{link_data.get('username', 'unknown')} ({duration_info['duration']}s)")
+                    elif duration_info:
+                        platform_stats['duration_filtered'] += 1
+                        print(f"⏰ Duration filtered: {duration_info['duration']}s not in range")
+                        continue
+                
+                results.append(result_entry)
+                platform_stats[platform] += 1
+            
+            # If no audio URLs found for this profile
+            if not found_urls:
+                platform_stats['filtered_out'] += 1
+        
+        print(f"\n🎯 Enhanced Filtering Results:")
+        print(f" ✅ YouTube (original): {platform_stats['youtube'] - platform_stats['discovered_youtube']}")
+        print(f" 🔍 YouTube (discovered): {platform_stats['discovered_youtube']}")
+        print(f" ✅ Twitch (original): {platform_stats['twitch'] - platform_stats['discovered_twitch']}")
+        print(f" 🔍 Twitch (discovered): {platform_stats['discovered_twitch']}")
+        print(f" ✅ TikTok: {platform_stats['tiktok']}")
+        print(f" 📺 Channel URLs: {platform_stats['channel_urls']}")
+        print(f" ⏰ Duration filtered: {platform_stats['duration_filtered']}")
+        print(f" ❌ No audio links: {platform_stats['filtered_out']}")
+        print(f" 📈 Total audio links: {len(results)}")
+        
+        return results
+
     def _classify_url_type(self, url: str, platform: str) -> str:
         """Classify if URL is a channel, video, or playlist"""
         url_lower = url.lower()

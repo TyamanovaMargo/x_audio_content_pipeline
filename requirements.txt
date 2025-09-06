@@ -139,3 +139,12 @@ tzdata==2025.2
 urllib3==2.5.0
 yarl==1.20.1
 yt-dlp==2025.8.22
+
+# YouTube/Twitch Scraper Dependencies (Stage 3.5)
+crawl4ai>=0.7.4
+beautifulsoup4>=4.13.0
+aiofiles>=24.1.0
+asyncio-throttle>=1.0.0
+fuzzywuzzy>=0.18.0
+python-levenshtein>=0.21.0
+colorama>=0.4.6

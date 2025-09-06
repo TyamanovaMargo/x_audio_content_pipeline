@@ -7,6 +7,7 @@ from config import Config
 from step1_validate_accounts import AccountValidator
 from step2_bright_data_trigger import BrightDataTrigger
 from step3_bright_data_download import BrightDataDownloader
+from step3_5_channel_discovery import ChannelDiscovery
 from step4_audio_filter import AudioContentFilter
 from step5_audio_detector import AudioContentDetector
 from step6_voice_sample_extractor import VoiceSampleExtractor
@@ -24,8 +25,9 @@ def main(input_file, force_recheck=False):
     print("=" * 60)
     print("🎯 Focus: YouTube, Twitch, and TikTok voice content extraction")
     print("🎤 Pipeline: MP3 → WAV conversion → Overlap Detection → Diarization Processing")
-    print("🔍 Stages: 7 comprehensive processing stages (1→2→3→4→4.5→5→6→6.5→7)")
+    print("🔍 Stages: 8 comprehensive processing stages (1→2→3→3.5→4→5→6→6.5→7)")
     print("🔄 Audio Flow: Stage 6 (MP3) → Stage 6.5 (MP3→WAV) → Stage 7 (WAV)")
+    print("🚀 NEW: Stage 3.5 discovers YouTube/Twitch channels not linked in profiles")
 
     # Stage 1: Account Validation with Persistent Logging
     print("\n✅ STAGE 1: Account Validation with Persistent Logging")
@@ -104,12 +106,34 @@ def main(input_file, force_recheck=False):
     pd.DataFrame(links).to_csv(links_file, index=False)
     print(f"🔗 Saved {len(links)} external links to: {links_file}")
 
+    # Stage 3.5: YouTube & Twitch Channel Discovery
+    print("\n🔍 STAGE 3.5: YouTube & Twitch Channel Discovery")
+    print("-" * 60)
+    
+    channel_discovery = ChannelDiscovery(output_dir=cfg.OUTPUT_DIR, max_workers=3)
+    enhanced_links_file = channel_discovery.discover_channels_for_snapshot(snapshot_id, links)
+    
+    if enhanced_links_file and os.path.exists(enhanced_links_file):
+        # Load the enhanced data with discovered channels
+        enhanced_df = pd.read_csv(enhanced_links_file)
+        enhanced_links = enhanced_df.to_dict('records')
+        print(f"✅ Stage 3.5 completed: Enhanced data with {len(enhanced_links)} profiles")
+        
+        # Use enhanced data for subsequent stages
+        input_for_stage4 = enhanced_links
+        input_file_for_stage4 = enhanced_links_file
+    else:
+        print("⚠️ Stage 3.5 failed or no additional channels found - using original data")
+        input_for_stage4 = links
+        input_file_for_stage4 = links_file
+
     # Stage 4: YouTube, Twitch & TikTok Audio Platform Filtering
     print("\n🎯 STAGE 4: YouTube, Twitch & TikTok Audio Platform Filtering")
     print("-" * 60)
+    print(f"📥 Input: {input_file_for_stage4}")
     
     audio_filter = AudioContentFilter()
-    audio_links = audio_filter.filter_audio_links(links)
+    audio_links = audio_filter.filter_audio_links_enhanced(input_for_stage4)
     
     if not audio_links:
         print("🔍 No YouTube, Twitch or TikTok links found")
