@@ -11,8 +11,7 @@ from step3_bright_data_download import BrightDataDownloader
 from step4_audio_filter import AudioContentFilter
 from step5_audio_detector import AudioContentDetector
 from step6_voice_sample_extractor import AudioDownloader  # Using your existing implementation
-from step6_5_overlap_detector import OverlapDetector
-from step7_diarization_processor import Step7DiarizationProcessor
+from step7_overlap_detector import Step7DiarizationProcessor
 from snapshot_manager import SnapshotManager
 
 
