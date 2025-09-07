@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 step6_voice_sample_extractor.py - Voice Sample Extraction (MP3 Audio Downloader)
-
 Based on the working test.py implementation with pipeline integration.
+ТОЛЬКО чанки по 30 минут - МАКСИМУМ 2 чанка (1 час общий)!
 """
 
 import os
@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 MIN_DURATION = 30  # seconds
 MAX_DURATION = 3600  # 1 hour in seconds
 CHUNK_DURATION = 1800  # 30 minutes in seconds
+MAX_CHUNKS = 2  # ОГРАНИЧЕНИЕ: максимум 2 чанка
 
 
 class AudioDownloader:
@@ -59,9 +60,9 @@ class AudioDownloader:
         return results
 
     def process_link(self, url: str, username: str) -> Dict:
-        """Process a single link - based on working test.py logic"""
+        """Process a single link - ТОЛЬКО чанки, максимум 2 чанка по 30 минут"""
         platform = self.determine_platform(url)
-
+        
         if platform == 'twitch':
             latest_video_url, duration = self.get_latest_twitch_vod_url_and_duration(url)
         else:
@@ -77,64 +78,50 @@ class AudioDownloader:
             logger.warning(f"Video too short ({duration}s), skipping")
             return None
 
-        download_duration = min(duration, MAX_DURATION)
-        filename = self.sanitize_filename(f"{username}_audio_full") + ".mp3"  # ИСПРАВЛЕНО
-        filepath = os.path.join(self.output_dir, filename)
+        # ОГРАНИЧИВАЕМ до максимум 2 чанков (1 час максимум)
+        chunk_results = []
+        
+        # Определяем количество чанков, но не больше MAX_CHUNKS
+        total_possible_chunks = (duration + CHUNK_DURATION - 1) // CHUNK_DURATION
+        # num_chunks = min(total_possible_chunks, MAX_CHUNKS)
+        num_chunks = int(min(total_possible_chunks, MAX_CHUNKS))
 
-        success = self.download_audio_chunk(latest_video_url, filepath, 0, download_duration)
+        
+        logger.info(f"Will download {num_chunks} chunks (max {MAX_CHUNKS}) from {total_possible_chunks} possible chunks")
+        
+        for i in range(num_chunks):
+            start = i * CHUNK_DURATION
+            current_duration = min(CHUNK_DURATION, duration - start)
+            
+            chunk_filename = self.sanitize_filename(f"{username}_audio_part{i+1}") + ".mp3"
+            chunk_filepath = os.path.join(self.output_dir, chunk_filename)
+            
+            success_part = self.download_audio_chunk(latest_video_url, chunk_filepath, start, current_duration)
+            
+            if success_part:
+                logger.info(f"Downloaded chunk {i+1}/{num_chunks}: {chunk_filepath}")
+                chunk_results.append({
+                    'chunk_number': i+1,
+                    'filepath': chunk_filepath,
+                    'filename': chunk_filename,
+                    'start': start,
+                    'duration': current_duration,
+                    'file_size_bytes': os.path.getsize(chunk_filepath) if os.path.exists(chunk_filepath) else 0
+                })
+            else:
+                logger.warning(f"Failed to download chunk {i+1}/{num_chunks}")
 
-        if success:
-            logger.info(f"Downloaded full audio: {filepath}")
+        if chunk_results:
             return {
                 'username': username,
                 'platform': platform,
-                'filepath': filepath,
-                'filename': filename,
                 'duration': duration,
-                'download_duration': download_duration,
                 'success': True,
-                'chunks': 1,
-                'file_size_bytes': os.path.getsize(filepath) if os.path.exists(filepath) else 0
+                'chunks': len(chunk_results),
+                'chunk_results': chunk_results
             }
-
-        # Try chunked download if full download failed and video is long enough
-        if duration > CHUNK_DURATION:
-            logger.info(f"Full download failed or incomplete, trying chunked download (2x30min)")
-            chunk_results = []
-            
-            for i in range(2):
-                start = i * CHUNK_DURATION
-                current_duration = min(CHUNK_DURATION, duration - start)
-                chunk_filename = self.sanitize_filename(f"{username}_audio_part{i+1}") + ".mp3"  # ИСПРАВЛЕНО
-                chunk_filepath = os.path.join(self.output_dir, chunk_filename)
-                
-                success_part = self.download_audio_chunk(latest_video_url, chunk_filepath, start, current_duration)
-                
-                if success_part:
-                    logger.info(f"Downloaded chunk {i+1}: {chunk_filepath}")
-                    chunk_results.append({
-                        'chunk_number': i+1,
-                        'filepath': chunk_filepath,
-                        'filename': chunk_filename,
-                        'start': start,
-                        'duration': current_duration,
-                        'file_size_bytes': os.path.getsize(chunk_filepath) if os.path.exists(chunk_filepath) else 0
-                    })
-                else:
-                    logger.warning(f"Failed to download chunk {i+1}")
-            
-            if chunk_results:
-                return {
-                    'username': username,
-                    'platform': platform,
-                    'duration': duration,
-                    'success': True,
-                    'chunks': len(chunk_results),
-                    'chunk_results': chunk_results
-                }
-
+        
         return None
-
 
     def determine_platform(self, url: str) -> str:
         if 'twitch.tv' in url:
@@ -256,7 +243,7 @@ def save_results(results: List[Dict], output_file: str):
                 })
                 flattened_results.append(chunk_result)
         else:
-            # Single file
+            # Single file (shouldn't happen anymore, but keeping for compatibility)
             base_result.update({
                 'filepath': result.get('filepath'),
                 'filename': result.get('filename'),
@@ -275,7 +262,7 @@ def save_results(results: List[Dict], output_file: str):
 def main():
     """Main function for pipeline step execution"""
     parser = argparse.ArgumentParser(
-        description="Step 6: Voice Sample Extraction (MP3 Audio Downloader)"
+        description="Step 6: Voice Sample Extraction (MP3 Audio Downloader) - MAX 2 CHUNKS"
     )
     parser.add_argument(
         "--input", 
@@ -305,11 +292,12 @@ def main():
         args.output_csv = os.path.join(args.output_dir, f"{input_basename}_step6_results.csv")
     
     logger.info("=" * 50)
-    logger.info("STEP 6: Voice Sample Extraction - STARTED")
+    logger.info("STEP 6: Voice Sample Extraction - MAX 2 CHUNKS - STARTED")
     logger.info("=" * 50)
     logger.info(f"Input file: {args.input}")
     logger.info(f"Output directory: {args.output_dir}")
     logger.info(f"Output CSV: {args.output_csv}")
+    logger.info(f"Max chunks per video: {MAX_CHUNKS} (= {MAX_CHUNKS * CHUNK_DURATION // 60} minutes)")
     
     try:
         # Initialize downloader
@@ -321,7 +309,7 @@ def main():
         logger.info(f"Loaded {len(links)} links for processing")
         
         # Process all links
-        logger.info("Starting audio download process...")
+        logger.info("Starting chunked audio download process...")
         results = downloader.download_audio_for_all(links)
         
         # Save results
@@ -337,12 +325,13 @@ def main():
         logger.info("=" * 50)
         logger.info(f"Total links processed: {len(links)}")
         logger.info(f"Successful downloads: {len(successful_results)}")
-        logger.info(f"Total audio files created: {total_chunks}")
+        logger.info(f"Total audio chunk files created: {total_chunks}")
+        logger.info(f"Max chunks per video: {MAX_CHUNKS} (= {MAX_CHUNKS * CHUNK_DURATION // 60} minutes max)")
         logger.info(f"Audio samples directory: {args.output_dir}")
         logger.info(f"Results CSV: {args.output_csv}")
         
         if successful_results:
-            logger.info("✅ Step 6 completed successfully")
+            logger.info("✅ Step 6 completed successfully - MAX 2 CHUNKS!")
         else:
             logger.warning("⚠️ Step 6 completed but no audio files were downloaded")
             
