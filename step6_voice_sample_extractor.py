@@ -61,7 +61,7 @@ class AudioDownloader:
     def process_link(self, url: str, username: str) -> Dict:
         """Process a single link - based on working test.py logic"""
         platform = self.determine_platform(url)
-        
+
         if platform == 'twitch':
             latest_video_url, duration = self.get_latest_twitch_vod_url_and_duration(url)
         else:
@@ -78,7 +78,7 @@ class AudioDownloader:
             return None
 
         download_duration = min(duration, MAX_DURATION)
-        filename = self.sanitize_filename(f"{username}_audio_full.mp3")
+        filename = self.sanitize_filename(f"{username}_audio_full") + ".mp3"  # ИСПРАВЛЕНО
         filepath = os.path.join(self.output_dir, filename)
 
         success = self.download_audio_chunk(latest_video_url, filepath, 0, download_duration)
@@ -105,7 +105,7 @@ class AudioDownloader:
             for i in range(2):
                 start = i * CHUNK_DURATION
                 current_duration = min(CHUNK_DURATION, duration - start)
-                chunk_filename = self.sanitize_filename(f"{username}_audio_part{i+1}.mp3")
+                chunk_filename = self.sanitize_filename(f"{username}_audio_part{i+1}") + ".mp3"  # ИСПРАВЛЕНО
                 chunk_filepath = os.path.join(self.output_dir, chunk_filename)
                 
                 success_part = self.download_audio_chunk(latest_video_url, chunk_filepath, start, current_duration)
@@ -132,8 +132,9 @@ class AudioDownloader:
                     'chunks': len(chunk_results),
                     'chunk_results': chunk_results
                 }
-        
+
         return None
+
 
     def determine_platform(self, url: str) -> str:
         if 'twitch.tv' in url:
