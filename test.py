@@ -157,7 +157,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     input_csv = sys.argv[1]
-    downloader = AudioDownloader("output_audio2")
+    downloader = AudioDownloader("output_audio3")
     links = downloader.load_links(input_csv)
     downloader.download_audio_for_all(links)
 

@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+step6_voice_sample_extractor.py - Voice Sample Extraction (MP3 Audio Downloader)
+
+Based on the working test.py implementation with pipeline integration.
+"""
+
 import os
 import subprocess
 import time
@@ -5,140 +12,130 @@ import json
 import pandas as pd
 import re
 import logging
+import argparse
+import sys
 from typing import List, Dict
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class VoiceSampleExtractor:
-    def __init__(self, output_dir="voice_samples", max_duration_hours=1, quality="192", min_duration=30, max_duration=3600):
+# Constants
+MIN_DURATION = 30  # seconds
+MAX_DURATION = 3600  # 1 hour in seconds
+CHUNK_DURATION = 1800  # 30 minutes in seconds
+
+
+class AudioDownloader:
+    def __init__(self, output_dir: str):
         self.output_dir = output_dir
-        self.max_duration_hours = max_duration_hours
-        self.max_duration_seconds = max_duration_hours * 3600
-        self.quality = quality
-        self.min_duration = min_duration  # MIN_DURATION from test.py
-        self.max_duration = max_duration  # MAX_DURATION from test.py
-        self.chunk_duration = 1800        # CHUNK_DURATION from test.py
-        
         os.makedirs(output_dir, exist_ok=True)
-        self.logger = logging.getLogger(__name__)
 
-    def extract_voice_samples(self, confirmed_voice_links: List[Dict]) -> List[Dict]:
-        """Main method - exact logic from test.py download_audio_for_all"""
-        if not confirmed_voice_links:
-            self.logger.info("🔍 No confirmed voice links to extract samples from")
-            return []
+    def load_links(self, filepath: str) -> List[Dict]:
+        df = pd.read_csv(filepath)
+        return df.to_dict('records')
 
-        self.logger.info(f"🎤 Starting audio extraction for {len(confirmed_voice_links)} links...")
-        self.logger.info(f"📁 Files will be saved to: {self.output_dir}")
-        self.logger.info(f"⏱️ Maximum duration: {self.max_duration_hours} hour(s)")
-
-        extracted_samples = []
-
-        for i, link_data in enumerate(confirmed_voice_links, 1):
-            url = link_data.get('url', '')
-            username = link_data.get('username', f'user{i}')
+    def download_audio_for_all(self, links: List[Dict]) -> List[Dict]:
+        """Download audio for all links and return results for pipeline integration"""
+        results = []
+        
+        for info in links:
+            username = info.get('username', 'user')
+            profile_name = info.get('profile_name', '')
+            url = info.get('url', '')
             
-            if not url:
-                self.logger.warning(f"⚠️ Skipping entry {i} - no URL provided")
-                continue
-
-            self.logger.info(f"🎤 [{i}/{len(confirmed_voice_links)}] Processing user: {username}, url: {url}")
+            logger.info(f"Processing user: {username}, profile: {profile_name}, url: {url}")
             
-            # Call test.py process_link logic
-            success = self.process_link(url, username, link_data)
-            
-            if success:
-                extracted_samples.append(link_data)
+            result = self.process_link(url, username)
+            if result:
+                # Add original info to result
+                result.update({
+                    'original_username': username,
+                    'original_profile_name': profile_name,
+                    'original_url': url
+                })
+                results.append(result)
+                
+        return results
 
-        self.logger.info(f"\n🎤 Audio extraction completed!")
-        self.logger.info(f"📊 Total links processed: {len(confirmed_voice_links)}")
-        self.logger.info(f"✅ Successful extractions: {len(extracted_samples)}")
-        self.logger.info(f"❌ Failed extractions: {len(confirmed_voice_links) - len(extracted_samples)}")
-
-        return extracted_samples
-
-    def process_link(self, url: str, username: str, link_data: Dict) -> bool:
-        """Exact logic from test.py process_link method"""
+    def process_link(self, url: str, username: str) -> Dict:
+        """Process a single link - based on working test.py logic"""
         platform = self.determine_platform(url)
-
+        
         if platform == 'twitch':
             latest_video_url, duration = self.get_latest_twitch_vod_url_and_duration(url)
         else:
             latest_video_url, duration = self.get_latest_video_url_and_duration(url)
 
         if not latest_video_url:
-            self.logger.warning(f"Could not get latest video url for {username} on {platform}")
-            return False
+            logger.warning(f"Could not get latest video url for {username} on {platform}")
+            return None
 
-        self.logger.info(f"Latest video duration: {duration} seconds")
+        logger.info(f"Latest video duration: {duration} seconds")
 
-        if duration < self.min_duration:
-            self.logger.warning(f"Video too short ({duration}s), skipping")
-            return False
+        if duration < MIN_DURATION:
+            logger.warning(f"Video too short ({duration}s), skipping")
+            return None
 
-        download_duration = min(duration, self.max_duration)
-
+        download_duration = min(duration, MAX_DURATION)
         filename = self.sanitize_filename(f"{username}_audio_full.mp3")
         filepath = os.path.join(self.output_dir, filename)
 
         success = self.download_audio_chunk(latest_video_url, filepath, 0, download_duration)
 
         if success:
-            self.logger.info(f"Downloaded full audio: {filepath}")
-            # Update link_data for pipeline compatibility
-            link_data.update({
-                'sample_extracted': True,
-                'sample_file': filepath,
-                'extraction_status': 'success',
+            logger.info(f"Downloaded full audio: {filepath}")
+            return {
+                'username': username,
+                'platform': platform,
+                'filepath': filepath,
+                'filename': filename,
+                'duration': duration,
                 'download_duration': download_duration,
-                'original_duration': duration,
-                'sample_quality': self.quality,
-                'processed_username': username,
-                'sample_filename': filename,
-                'platform_source': platform,
-                'original_username': username
-            })
-            return True
+                'success': True,
+                'chunks': 1,
+                'file_size_bytes': os.path.getsize(filepath) if os.path.exists(filepath) else 0
+            }
 
-        if duration > self.chunk_duration:
-            self.logger.info(f"Full download failed or incomplete, trying chunked download (2x30min)")
-            chunk_success = False
+        # Try chunked download if full download failed and video is long enough
+        if duration > CHUNK_DURATION:
+            logger.info(f"Full download failed or incomplete, trying chunked download (2x30min)")
+            chunk_results = []
             
             for i in range(2):
-                start = i * self.chunk_duration
-                current_duration = min(self.chunk_duration, duration - start)
-                
+                start = i * CHUNK_DURATION
+                current_duration = min(CHUNK_DURATION, duration - start)
                 chunk_filename = self.sanitize_filename(f"{username}_audio_part{i+1}.mp3")
                 chunk_filepath = os.path.join(self.output_dir, chunk_filename)
                 
                 success_part = self.download_audio_chunk(latest_video_url, chunk_filepath, start, current_duration)
                 
                 if success_part:
-                    self.logger.info(f"Downloaded chunk {i+1}: {chunk_filepath}")
-                    chunk_success = True
+                    logger.info(f"Downloaded chunk {i+1}: {chunk_filepath}")
+                    chunk_results.append({
+                        'chunk_number': i+1,
+                        'filepath': chunk_filepath,
+                        'filename': chunk_filename,
+                        'start': start,
+                        'duration': current_duration,
+                        'file_size_bytes': os.path.getsize(chunk_filepath) if os.path.exists(chunk_filepath) else 0
+                    })
                 else:
-                    self.logger.warning(f"Failed to download chunk {i+1}")
+                    logger.warning(f"Failed to download chunk {i+1}")
             
-            if chunk_success:
-                # Update link_data for pipeline compatibility
-                link_data.update({
-                    'sample_extracted': True,
-                    'sample_file': filepath,
-                    'extraction_status': 'success_chunked',
-                    'download_duration': download_duration,
-                    'original_duration': duration,
-                    'sample_quality': self.quality,
-                    'processed_username': username,
-                    'sample_filename': filename,
-                    'platform_source': platform,
-                    'original_username': username
-                })
-                return True
-
-        return False
+            if chunk_results:
+                return {
+                    'username': username,
+                    'platform': platform,
+                    'duration': duration,
+                    'success': True,
+                    'chunks': len(chunk_results),
+                    'chunk_results': chunk_results
+                }
+        
+        return None
 
     def determine_platform(self, url: str) -> str:
-        """Exact logic from test.py"""
         if 'twitch.tv' in url:
             return 'twitch'
         elif 'youtube.com' in url or 'youtu.be' in url:
@@ -149,7 +146,6 @@ class VoiceSampleExtractor:
             return 'unknown'
 
     def get_latest_video_url_and_duration(self, channel_url: str):
-        """Exact logic from test.py"""
         cmd = [
             'yt-dlp',
             '--quiet',
@@ -166,11 +162,10 @@ class VoiceSampleExtractor:
             duration = info.get('duration', 0)
             return video_url, duration
         except Exception as e:
-            self.logger.error(f"Failed to fetch latest video info: {e}")
+            logger.error(f"Failed to fetch latest video info: {e}")
             return None, 0
 
     def get_latest_twitch_vod_url_and_duration(self, channel_url: str):
-        """Exact logic from test.py"""
         videos_url = channel_url.rstrip('/') + '/videos'
         
         cmd = [
@@ -191,17 +186,16 @@ class VoiceSampleExtractor:
                 return video_url, duration
             return None, 0
         except Exception as e:
-            self.logger.error(f"Failed to fetch latest Twitch VOD info: {e}")
+            logger.error(f"Failed to fetch latest Twitch VOD info: {e}")
             return None, 0
 
     def download_audio_chunk(self, video_url: str, output_path: str, start_sec: int, duration_sec: int) -> bool:
-        """Exact logic from test.py"""
         try:
             cmd = [
                 'yt-dlp',
                 '--extract-audio',
                 '--audio-format', 'mp3',
-                '--audio-quality', self.quality,
+                '--audio-quality', '192',
                 '--output', output_path,
                 '--postprocessor-args', f'ffmpeg:-ss {start_sec} -t {duration_sec}',
                 '--no-playlist',
@@ -209,102 +203,152 @@ class VoiceSampleExtractor:
                 '--quiet'
             ]
 
-            self.logger.info(f"Downloading audio segment: start={start_sec}s, duration={duration_sec}s")
+            logger.info(f"Downloading audio segment: start={start_sec}s, duration={duration_sec}s")
             subprocess.check_call(cmd)
 
             if os.path.exists(output_path) and os.path.getsize(output_path) > 50000:
                 return True
             else:
-                self.logger.warning(f"Downloaded file too small or missing: {output_path}")
+                logger.warning(f"Downloaded file too small or missing: {output_path}")
                 return False
-
         except Exception as e:
-            self.logger.error(f"Failed to download audio chunk: {e}")
+            logger.error(f"Failed to download audio chunk: {e}")
             return False
 
     def sanitize_filename(self, filename: str) -> str:
-        """Exact logic from test.py"""
         filename = re.sub(r'[^\w\s-]', '', filename).strip().lower()
         filename = re.sub(r'[-\s]+', '_', filename)
         return filename
 
-    # Additional methods for pipeline compatibility
-    def generate_samples_report(self, extracted_samples: List[Dict], output_file: str = None) -> str:
-        """Generate a comprehensive report of extracted voice samples"""
-        if not output_file:
-            output_file = os.path.join(self.output_dir, "voice_samples_report.txt")
-        
-        try:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write("🎤 VOICE SAMPLES EXTRACTION REPORT (test.py logic)\n")
-                f.write("=" * 60 + "\n\n")
-                f.write(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Total samples extracted: {len(extracted_samples)}\n")
-                f.write(f"Max duration per file: {self.max_duration_hours} hour(s)\n")
-                f.write(f"Audio quality: {self.quality} kbps\n")
-                f.write(f"Output directory: {self.output_dir}\n\n")
-                
-                if extracted_samples:
-                    for i, sample in enumerate(extracted_samples, 1):
-                        nickname = sample.get('processed_username', 'unknown')
-                        platform = sample.get('platform_source', 'unknown')
-                        filename = sample.get('sample_filename', 'N/A')
-                        f.write(f"{i:2d}. {filename}\n")
-                        f.write(f"    User: @{nickname}\n")
-                        f.write(f"    Platform: {platform}\n")
-                        f.write(f"    Status: {sample.get('extraction_status', 'unknown')}\n\n")
-                else:
-                    f.write("No samples were extracted.\n")
-            
-            self.logger.info(f"📄 Report saved: {output_file}")
-            return output_file
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to generate report: {e}")
-            return ""
 
-    def clean_temp_files(self):
-        """Clean temporary .ytdl files and other artifacts"""
-        if not os.path.exists(self.output_dir):
-            return
+def save_results(results: List[Dict], output_file: str):
+    """Save processing results to CSV file"""
+    if not results:
+        logger.warning("No results to save")
+        return
         
-        cleaned_count = 0
-        for filename in os.listdir(self.output_dir):
-            if filename.endswith(('.ytdl', '.part', '.temp')):
-                filepath = os.path.join(self.output_dir, filename)
-                try:
-                    os.remove(filepath)
-                    cleaned_count += 1
-                    self.logger.info(f"🗑️ Cleaned: {filename}")
-                except Exception as e:
-                    self.logger.warning(f"⚠️ Could not clean {filename}: {e}")
+    # Flatten results for CSV output
+    flattened_results = []
+    for result in results:
+        base_result = {
+            'username': result.get('username'),
+            'platform': result.get('platform'),
+            'duration': result.get('duration'),
+            'success': result.get('success'),
+            'chunks': result.get('chunks', 1),
+            'original_username': result.get('original_username'),
+            'original_profile_name': result.get('original_profile_name'),
+            'original_url': result.get('original_url')
+        }
         
-        if cleaned_count > 0:
-            self.logger.info(f"🧹 Cleaned {cleaned_count} temporary files")
+        if 'chunk_results' in result:
+            # Multiple chunks
+            for chunk in result['chunk_results']:
+                chunk_result = base_result.copy()
+                chunk_result.update({
+                    'filepath': chunk['filepath'],
+                    'filename': chunk['filename'],
+                    'chunk_number': chunk['chunk_number'],
+                    'start_time': chunk['start'],
+                    'chunk_duration': chunk['duration'],
+                    'file_size_bytes': chunk.get('file_size_bytes', 0)
+                })
+                flattened_results.append(chunk_result)
+        else:
+            # Single file
+            base_result.update({
+                'filepath': result.get('filepath'),
+                'filename': result.get('filename'),
+                'chunk_number': 1,
+                'start_time': 0,
+                'chunk_duration': result.get('download_duration'),
+                'file_size_bytes': result.get('file_size_bytes', 0)
+            })
+            flattened_results.append(base_result)
+    
+    df = pd.DataFrame(flattened_results)
+    df.to_csv(output_file, index=False)
+    logger.info(f"Results saved to: {output_file}")
 
-# Standalone execution for testing (like test.py)
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) != 2:
-        print("Usage: python step6_voice_sample_extractor.py <confirmed_voice_links.csv>")
+
+def main():
+    """Main function for pipeline step execution"""
+    parser = argparse.ArgumentParser(
+        description="Step 6: Voice Sample Extraction (MP3 Audio Downloader)"
+    )
+    parser.add_argument(
+        "--input", 
+        required=True, 
+        help="Input CSV file with URLs and metadata"
+    )
+    parser.add_argument(
+        "--output-dir", 
+        default="step6_voice_samples", 
+        help="Directory to save downloaded audio samples"
+    )
+    parser.add_argument(
+        "--output-csv",
+        help="Output CSV file for results (default: auto-generated in output-dir)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Validate input file exists
+    if not os.path.exists(args.input):
+        logger.error(f"Input file not found: {args.input}")
         sys.exit(1)
     
-    input_csv = sys.argv[1]
+    # Generate output CSV filename if not provided
+    if not args.output_csv:
+        input_basename = os.path.splitext(os.path.basename(args.input))[0]
+        args.output_csv = os.path.join(args.output_dir, f"{input_basename}_step6_results.csv")
     
-    # Create extractor using test.py logic
-    extractor = VoiceSampleExtractor("voice_samples_output")
+    logger.info("=" * 50)
+    logger.info("STEP 6: Voice Sample Extraction - STARTED")
+    logger.info("=" * 50)
+    logger.info(f"Input file: {args.input}")
+    logger.info(f"Output directory: {args.output_dir}")
+    logger.info(f"Output CSV: {args.output_csv}")
     
-    # Load links like test.py load_links
-    df = pd.read_csv(input_csv)
-    confirmed_voice_links = df.to_dict('records')
-    
-    # Extract audio using test.py logic
-    results = extractor.extract_voice_samples(confirmed_voice_links)
-    
-    # Generate report
-    if results:
-        report_file = extractor.generate_samples_report(results)
-        print(f"Extracted {len(results)} audio samples successfully using test.py logic.")
-        print(f"Report saved: {report_file}")
-    else:
-        print("No audio samples were extracted.")
+    try:
+        # Initialize downloader
+        downloader = AudioDownloader(args.output_dir)
+        
+        # Load input data
+        logger.info("Loading input data...")
+        links = downloader.load_links(args.input)
+        logger.info(f"Loaded {len(links)} links for processing")
+        
+        # Process all links
+        logger.info("Starting audio download process...")
+        results = downloader.download_audio_for_all(links)
+        
+        # Save results
+        os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+        save_results(results, args.output_csv)
+        
+        # Summary
+        successful_results = [r for r in results if r.get('success')]
+        total_chunks = sum(r.get('chunks', 0) for r in successful_results)
+        
+        logger.info("=" * 50)
+        logger.info("STEP 6: Voice Sample Extraction - COMPLETED")
+        logger.info("=" * 50)
+        logger.info(f"Total links processed: {len(links)}")
+        logger.info(f"Successful downloads: {len(successful_results)}")
+        logger.info(f"Total audio files created: {total_chunks}")
+        logger.info(f"Audio samples directory: {args.output_dir}")
+        logger.info(f"Results CSV: {args.output_csv}")
+        
+        if successful_results:
+            logger.info("✅ Step 6 completed successfully")
+        else:
+            logger.warning("⚠️ Step 6 completed but no audio files were downloaded")
+            
+    except Exception as e:
+        logger.error(f"❌ Step 6 failed: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
