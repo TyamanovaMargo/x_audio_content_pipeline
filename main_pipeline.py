@@ -8,6 +8,7 @@ from config import Config
 from step1_validate_accounts import AccountValidator
 from step2_bright_data_trigger import BrightDataTrigger
 from step3_bright_data_download import BrightDataDownloader
+from step3_5_youtube_twitch_runner import Step3_5_YouTubeTwitchRunner
 from step4_audio_filter import AudioContentFilter
 from step5_audio_detector import AudioContentDetector
 from step6_voice_sample_extractor import AudioDownloader  # Using your existing implementation
@@ -101,12 +102,27 @@ def main(input_file, force_recheck=False):
     pd.DataFrame(links).to_csv(links_file, index=False)
     print(f"🔗 Saved {len(links)} external links to: {links_file}")
 
+    # Stage 3.5: YouTube & Twitch Channel Discovery
+    print("\n🔍 STAGE 3.5: YouTube & Twitch Channel Discovery")
+    print("-" * 60)
+
+    runner = Step3_5_YouTubeTwitchRunner(cfg.OUTPUT_DIR)
+    enhanced_file = runner.run_scraper_for_snapshot(snapshot_id)
+    
+    if enhanced_file:
+        print(f"✅ Stage 3.5 completed: {enhanced_file}")
+        # Load enhanced data with YouTube/Twitch URLs
+        enhanced_links = pd.read_csv(enhanced_file).to_dict('records')
+    else:
+        print("⚠️ Stage 3.5 failed, using original external links")
+        enhanced_links = links
+
     # Stage 4: YouTube, Twitch & TikTok Audio Platform Filtering
     print("\n🎯 STAGE 4: YouTube, Twitch & TikTok Audio Platform Filtering")
     print("-" * 60)
 
     audio_filter = AudioContentFilter()
-    audio_links = audio_filter.filter_audio_links(links)
+    audio_links = audio_filter.filter_audio_links(enhanced_links)
 
     if not audio_links:
         print("🔍 No YouTube, Twitch or TikTok links found")

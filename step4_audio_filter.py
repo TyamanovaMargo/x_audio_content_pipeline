@@ -23,7 +23,8 @@ class AudioContentFilter:
         }
 
     def filter_audio_links(self, links: List[Dict]) -> List[Dict]:
-        """Filter links for YouTube, Twitch, and TikTok with intelligent handling"""
+        """Filter links for YouTube, Twitch, and TikTok with intelligent handling
+        Now processes original url, youtube_url, and twitch_url columns"""
         results = []
         platform_stats = {
             'youtube': 0, 
@@ -35,51 +36,76 @@ class AudioContentFilter:
         }
         
         for link in links:
-            domain = urlparse(link['url']).netloc.lower()
+            urls_to_check = []
+            
+            # Collect all URLs to check from different columns
+            if 'url' in link and link['url']:
+                urls_to_check.append(('original', link['url']))
+            if 'youtube_url' in link and link['youtube_url']:
+                urls_to_check.append(('youtube', link['youtube_url']))
+            if 'twitch_url' in link and link['twitch_url']:
+                urls_to_check.append(('twitch', link['twitch_url']))
+                
             found_platform = None
             
-            for plat_domain, plat_name in self.AUDIO_PLATFORMS.items():
-                if plat_domain in domain:
-                    url_type = self._classify_url_type(link['url'], plat_name)
-                    
-                    if url_type == 'channel':
-                        # For channel URLs, skip duration check and mark for later processing
-                        link['platform_type'] = plat_name
-                        link['url_type'] = 'channel'
-                        link['requires_video_selection'] = True
-                        results.append(link)
-                        platform_stats['channel_urls'] += 1
-                        found_platform = plat_name
-                        print(f"📺 Channel URL detected: {plat_name} - will select recent videos")
+            # Process each URL
+            for url_source, url in urls_to_check:
+                domain = urlparse(url).netloc.lower()
+                
+                for plat_domain, plat_name in self.AUDIO_PLATFORMS.items():
+                    if plat_domain in domain:
+                        url_type = self._classify_url_type(url, plat_name)
                         
-                    elif url_type == 'video':
-                        # For direct video URLs, check duration
-                        duration_info = self._check_video_duration(link['url'])
+                        if url_type == 'channel':
+                            # For channel URLs, skip duration check and mark for later processing
+                            link_copy = link.copy()
+                            link_copy['url'] = url  # Use the found audio platform URL
+                            link_copy['platform_type'] = plat_name
+                            link_copy['url_type'] = 'channel'
+                            link_copy['url_source'] = url_source
+                            link_copy['requires_video_selection'] = True
+                            results.append(link_copy)
+                            platform_stats['channel_urls'] += 1
+                            found_platform = plat_name
+                            print(f"📺 Channel URL detected: {plat_name} - will select recent videos")
+                            
+                        elif url_type == 'video':
+                            # For direct video URLs, check duration
+                            duration_info = self._check_video_duration(url)
+                            
+                            if duration_info and duration_info['valid']:
+                                link_copy = link.copy()
+                                link_copy['url'] = url  # Use the found audio platform URL
+                                link_copy['platform_type'] = plat_name
+                                link_copy['url_type'] = 'video'
+                                link_copy['url_source'] = url_source
+                                link_copy.update(duration_info)
+                                results.append(link_copy)
+                                platform_stats[plat_name] += 1
+                                found_platform = plat_name
+                            elif duration_info:
+                                platform_stats['duration_filtered'] += 1
+                                print(f"⏰ Duration filtered: {duration_info['duration']}s not in range")
+                            else:
+                                # Duration check failed, but still include (will be handled later)
+                                link_copy = link.copy()
+                                link_copy['url'] = url  # Use the found audio platform URL
+                                link_copy['platform_type'] = plat_name
+                                link_copy['url_type'] = 'video'
+                                link_copy['url_source'] = url_source
+                                results.append(link_copy)
+                                platform_stats[plat_name] += 1
+                                found_platform = plat_name
                         
-                        if duration_info and duration_info['valid']:
-                            link['platform_type'] = plat_name
-                            link['url_type'] = 'video'
-                            link.update(duration_info)
-                            results.append(link)
-                            platform_stats[plat_name] += 1
-                            found_platform = plat_name
-                        elif duration_info:
-                            platform_stats['duration_filtered'] += 1
-                            print(f"⏰ Duration filtered: {duration_info['duration']}s not in range")
-                        else:
-                            # Duration check failed, but still include (will be handled later)
-                            link['platform_type'] = plat_name
-                            link['url_type'] = 'video'
-                            results.append(link)
-                            platform_stats[plat_name] += 1
-                            found_platform = plat_name
-                    
+                        break
+                
+                if found_platform:
                     break
             
             if not found_platform:
                 platform_stats['filtered_out'] += 1
 
-        print(f"🎯 Filtered results:")
+        print("🎯 Filtered results:")
         print(f" ✅ YouTube: {platform_stats['youtube']}")
         print(f" ✅ Twitch: {platform_stats['twitch']}")
         print(f" ✅ TikTok: {platform_stats['tiktok']}")
