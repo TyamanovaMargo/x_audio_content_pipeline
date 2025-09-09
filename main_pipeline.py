@@ -296,17 +296,20 @@ def main(input_file, force_recheck=False):
 
     # Stage 7: Diarization Processing (Processes WAV files)
     if clean_chunks and 'overlap_detector' in locals() and overlap_detector.output_dir:
-        print("\n🎤 STAGE 7: Diarization Processing (WAV Input)")
+        print("\n🎤 STAGE 7: Diarization Processing (Voice Samples Input)")
         print("-" * 60)
         print("🔄 Processing clean WAV chunks with advanced diarization-first approach")
 
         try:
-            processor = OverlapDetector(config_path="config.json")
+            processor = OverlapDetector(
+                output_dir=overlap_detector.output_dir,
+                huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
+            )
             clean_audio_dir = overlap_detector.output_dir
             wav_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.wav')]
             print(f"📁 Processing {len(wav_files)} WAV files from: {clean_audio_dir}")
 
-            processed_results = processor.process_folder(clean_audio_dir)
+            processed_results = processor.process_audio_directory(clean_audio_dir)
 
             if processed_results:
                 print(f"✅ Stage 7 diarization processing completed!")
@@ -755,20 +758,23 @@ def run_stage6_5_only(input_path, output_dir="output"):
             print(f"❌ Error processing input: {e}")
 
 
-def run_stage7_only(clean_audio_dir, output_dir="stage7_output"):
-    """Run only Stage 7: Diarization Processing (WAV Input)"""
-    print("🎤 STAGE 7 ONLY: Diarization Processing (WAV Input)")
+def run_stage7_only(voice_samples_dir, output_dir="stage7_output"):
+    """Run only Stage 7: Diarization Processing (Voice Samples Input)"""
+    print("🎤 STAGE 7 ONLY: Diarization Processing (Voice Samples Input)")
     print("=" * 50)
 
-    if not os.path.exists(clean_audio_dir):
-        print(f"❌ Clean audio directory not found: {clean_audio_dir}")
+    # Initialize config
+    cfg = Config()
+
+    if not os.path.exists(voice_samples_dir):
+        print(f"❌ Voice samples directory not found: {voice_samples_dir}")
         return
 
-    wav_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.wav')]
-    mp3_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.mp3')]
+    wav_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.wav')]
+    mp3_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.mp3')]
 
     if not wav_files and not mp3_files:
-        print(f"❌ No audio files (WAV/MP3) found in: {clean_audio_dir}")
+        print(f"❌ No audio files (WAV/MP3) found in: {voice_samples_dir}")
         return
 
     print(f"📥 Found {len(wav_files)} WAV files and {len(mp3_files)} MP3 files to process")
@@ -777,8 +783,11 @@ def run_stage7_only(clean_audio_dir, output_dir="stage7_output"):
         print("🔄 MP3 files will be converted to WAV for processing")
 
     try:
-        processor = OverlapDetector(config_path="config.json")
-        processed_results = processor.process_folder(clean_audio_dir)
+        processor = OverlapDetector(
+            output_dir=output_dir,
+            huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
+        )
+        processed_results = processor.process_audio_directory(voice_samples_dir)
 
         if processed_results:
             print(f"✅ Stage 7 diarization processing completed!")
