@@ -3,7 +3,6 @@ import pandas as pd
 import argparse
 import sys
 import subprocess
-
 from config import Config
 from step1_validate_accounts import AccountValidator
 from step2_bright_data_trigger import BrightDataTrigger
@@ -11,29 +10,27 @@ from step3_bright_data_download import BrightDataDownloader
 from step3_5_youtube_twitch_runner import Step3_5_YouTubeTwitchRunner
 from step4_audio_filter import AudioContentFilter
 from step5_audio_detector import AudioContentDetector
-from step6_voice_sample_extractor import AudioDownloader  # Using your existing implementation
-from step7_overlap_detector import OverlapDetector
+from step6_voice_sample_extractor import AudioDownloader, save_results
+from step7_overlap_detector import W2VBertOverlapDetector
 from snapshot_manager import SnapshotManager
 
-
 def main(input_file, force_recheck=False):
-    """Main pipeline execution - Pipeline with MP3 to WAV conversion handling"""
-
+    """Main pipeline execution - W2V-BERT Enhanced Pipeline with MP3 to WAV conversion handling"""
     cfg = Config()
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
-    print("🎙️ YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE")
+    print("🎙️ W2V-BERT ENHANCED VOICE CONTENT PIPELINE")
     print("=" * 60)
     print("🎯 Focus: YouTube, Twitch, and TikTok voice content extraction")
-    print("🎤 Pipeline: MP3 → WAV conversion → Overlap Detection → Diarization Processing")
+    print("🤖 AI Model: W2V-BERT for speech recognition and overlap detection")
+    print("🎤 Pipeline: MP3 → WAV conversion → W2V-BERT Processing → Transcription")
     print("🔍 Stages: 7 comprehensive processing stages (1→2→3→4→5→6→6.5→7)")
-    print("🔄 Audio Flow: Stage 6 (MP3) → Stage 6.5 (MP3→WAV) → Stage 7 (WAV)")
+    print("🔄 Audio Flow: Stage 6 (MP3) → Stage 6.5 (MP3→WAV+W2V-BERT) → Stage 7 (WAV+Transcripts)")
 
     # Stage 1: Account Validation with Persistent Logging
     print("\n✅ STAGE 1: Account Validation with Persistent Logging")
     print("-" * 60)
     log_file = os.path.join(cfg.OUTPUT_DIR, "processed_accounts.json")
-
     validator = AccountValidator(
         max_concurrent=cfg.MAX_CONCURRENT_VALIDATIONS,
         delay_min=cfg.VALIDATION_DELAY_MIN,
@@ -42,7 +39,6 @@ def main(input_file, force_recheck=False):
     )
 
     existing_accounts_file = os.path.join(cfg.OUTPUT_DIR, "1_existing_accounts.csv")
-
     valid_accounts = validator.validate_accounts_from_file(
         input_file, existing_accounts_file, force_recheck=force_recheck
     )
@@ -54,12 +50,11 @@ def main(input_file, force_recheck=False):
     # Stage 2: Bright Data Snapshot Management with Duplicate Prevention
     print("\n🚀 STAGE 2: Bright Data Snapshot Management")
     print("-" * 60)
-
     trigger = BrightDataTrigger(cfg.BRIGHT_DATA_API_TOKEN, cfg.BRIGHT_DATA_DATASET_ID)
     usernames = [acc['username'] for acc in valid_accounts]
-
     sm = SnapshotManager(cfg.OUTPUT_DIR)
     existing_snapshot = sm.get_reusable_snapshot(usernames)
+
     if existing_snapshot:
         print(f"🔄 Using existing snapshot: {existing_snapshot}")
         snapshot_id = existing_snapshot
@@ -76,7 +71,6 @@ def main(input_file, force_recheck=False):
     # Stage 3: Data Download & External Link Extraction
     print("\n⬇️ STAGE 3: Data Download & External Link Extraction")
     print("-" * 60)
-
     downloader = BrightDataDownloader(cfg.BRIGHT_DATA_API_TOKEN)
     profiles = downloader.wait_and_download_snapshot(snapshot_id, cfg.MAX_SNAPSHOT_WAIT)
 
@@ -86,13 +80,11 @@ def main(input_file, force_recheck=False):
         return
 
     sm.update_snapshot_status(snapshot_id, "completed", profiles)
-
     profiles_file = os.path.join(cfg.OUTPUT_DIR, f"2_snapshot_{snapshot_id}_results.csv")
     pd.DataFrame(profiles).to_csv(profiles_file, index=False)
     print(f"📊 Saved {len(profiles)} profiles to: {profiles_file}")
 
     links = downloader.extract_external_links(profiles)
-
     if not links:
         print("🔗 No external links found in profiles")
         print("⚠️ Pipeline completed but no links to process further")
@@ -105,13 +97,11 @@ def main(input_file, force_recheck=False):
     # Stage 3.5: YouTube & Twitch Channel Discovery
     print("\n🔍 STAGE 3.5: YouTube & Twitch Channel Discovery")
     print("-" * 60)
-
     runner = Step3_5_YouTubeTwitchRunner(cfg.OUTPUT_DIR)
     enhanced_file = runner.run_scraper_for_snapshot(snapshot_id)
-    
+
     if enhanced_file:
         print(f"✅ Stage 3.5 completed: {enhanced_file}")
-        # Load enhanced data with YouTube/Twitch URLs
         enhanced_links = pd.read_csv(enhanced_file).to_dict('records')
     else:
         print("⚠️ Stage 3.5 failed, using original external links")
@@ -120,7 +110,6 @@ def main(input_file, force_recheck=False):
     # Stage 4: YouTube, Twitch & TikTok Audio Platform Filtering
     print("\n🎯 STAGE 4: YouTube, Twitch & TikTok Audio Platform Filtering")
     print("-" * 60)
-
     audio_filter = AudioContentFilter()
     audio_links = audio_filter.filter_audio_links(enhanced_links)
 
@@ -130,7 +119,6 @@ def main(input_file, force_recheck=False):
         return
 
     print(f"🎯 Found {len(audio_links)} YouTube/Twitch/TikTok audio links!")
-
     audio_file = os.path.join(cfg.OUTPUT_DIR, f"4_snapshot_{snapshot_id}_audio_links.csv")
     pd.DataFrame(audio_links).to_csv(audio_file, index=False)
     print(f"📁 Saved to: {audio_file}")
@@ -143,19 +131,17 @@ def main(input_file, force_recheck=False):
 
     print("\n📊 Platform breakdown:")
     for platform, count in platform_counts.items():
-        print(f" {platform}: {count}")
+        print(f"  {platform}: {count}")
 
     # Stage 5: YouTube, Twitch & TikTok Audio Content Detection
     print("\n🎵 STAGE 5: YouTube, Twitch & TikTok Audio Content Detection")
     print("-" * 60)
-
     audio_detector = AudioContentDetector(
         timeout=15,
         huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
     )
 
     audio_detected_links = audio_detector.detect_audio_content(audio_links)
-
     if not audio_detected_links:
         print("🔍 No audio content detected in YouTube/Twitch links")
         print("⚠️ Pipeline completed but no actual audio found")
@@ -166,6 +152,7 @@ def main(input_file, force_recheck=False):
     print(f"🎵 Found {len(audio_detected_links)} links with actual audio content!")
     print(f"📁 Saved to: {audio_detected_file}")
 
+    # Audio content analysis
     audio_types = {}
     confidence_levels = {}
     for link in audio_detected_links:
@@ -175,45 +162,38 @@ def main(input_file, force_recheck=False):
         confidence_levels[confidence] = confidence_levels.get(confidence, 0) + 1
 
     print("\n📊 Audio Content Breakdown:")
-    print(" Audio Types:")
+    print("  Audio Types:")
     for audio_type, count in sorted(audio_types.items(), key=lambda x: x[1], reverse=True):
-        print(f" {audio_type}: {count}")
-
-    print(" Confidence Levels:")
+        print(f"    {audio_type}: {count}")
+    print("  Confidence Levels:")
     for confidence, count in confidence_levels.items():
-        print(f" {confidence}: {count}")
+        print(f"    {confidence}: {count}")
 
     confirmed_voice = audio_detected_links
 
-   # Stage 6: Voice Sample Extraction (Outputs MP3 files)
+    # Stage 6: Voice Sample Extraction (Outputs MP3 files)
     print("\n🎤 STAGE 6: Voice Sample Extraction (MP3 Output)")
     print("-" * 60)
-
     if confirmed_voice:
-        # Прямой импорт без subprocess - быстрее
-        from step6_voice_sample_extractor import AudioDownloader, save_results
-        
         sample_extractor = AudioDownloader(
             output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_samples")
         )
-
-        # Прямой вызов как в test.py
+        
         extracted_samples = sample_extractor.download_audio_for_all(confirmed_voice)
 
         if extracted_samples:
             extraction_file = os.path.join(cfg.OUTPUT_DIR, f"6_snapshot_{snapshot_id}_voice_samples.csv")
             save_results(extracted_samples, extraction_file)
-            
             print(f"📁 Saved extraction results to: {extraction_file}")
             print(f"✅ Successfully processed {len(extracted_samples)} voice samples")
             print(f"📁 Samples directory: {sample_extractor.output_dir}")
-            
+
             print(f"\n🎤 Voice Sample Extraction Summary:")
-            print(f" 📊 Total voice links: {len(confirmed_voice)}")
-            print(f" ✅ Successful extractions: {len(extracted_samples)}")
-            print(f" 📁 Samples directory: {sample_extractor.output_dir}")
-            print(f" ⏱️ Sample duration: up to 1 hour each")
-            print(f" 🎵 Output format: MP3 (192kbps)")
+            print(f"  📊 Total voice links: {len(confirmed_voice)}")
+            print(f"  ✅ Successful extractions: {len(extracted_samples)}")
+            print(f"  📁 Samples directory: {sample_extractor.output_dir}")
+            print(f"  ⏱️ Sample duration: up to 1 hour each")
+            print(f"  🎵 Output format: MP3 (192kbps)")
 
             print(f"\n🎵 Extracted MP3 Sample Files:")
             for i, sample in enumerate(extracted_samples[:10], 1):
@@ -221,7 +201,7 @@ def main(input_file, force_recheck=False):
                 platform = sample.get('platform', 'unknown')
                 chunks = sample.get('chunks', 1)
                 success = sample.get('success', False)
-                print(f" {i}. @{username} ({platform}) - {chunks} chunk(s) - {'✅' if success else '❌'}")
+                print(f"  {i}. @{username} ({platform}) - {chunks} chunk(s) - {'✅' if success else '❌'}")
         else:
             print("❌ No voice samples could be extracted")
             print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
@@ -230,36 +210,37 @@ def main(input_file, force_recheck=False):
         print("⏭️ Skipping voice sample extraction - no confirmed voice content")
         extracted_samples = []
 
-
-
-
-    # Stage 6.5: Audio Chunking and Overlap Detection (MP3 → WAV conversion)
+    # Stage 6.5: W2V-BERT Audio Processing and Overlap Detection (MP3 → WAV conversion)
     if extracted_samples:
-        print("\n🔍 STAGE 6.5: Audio Chunking and Overlap Detection (MP3 → WAV Processing)")
+        print("\n🤖 STAGE 6.5: W2V-BERT Audio Processing and Overlap Detection")
         print("-" * 60)
-        print("🔄 Converting MP3 files to WAV for overlap detection and chunking")
-        
-        overlap_detector = OverlapDetector(
+        print("🔄 Converting MP3 files to WAV for W2V-BERT processing")
+        print("🗣️ Using W2V-BERT for voice activity detection and transcription")
+        print("🔍 Using W2V-BERT for overlapping speech detection")
+
+        w2v_overlap_detector = W2VBertOverlapDetector(
             output_dir=os.path.join(cfg.OUTPUT_DIR, "clean_chunks"),
             chunk_duration_minutes=5,
             overlap_threshold=0.3,
             vad_threshold=0.20,  # Increased from default 0.05 to filter music
+            noise_reduction=True,
+            max_workers=2,  # Reduce for W2V-BERT memory management
+            model_name="facebook/w2v-bert-2.0",
             huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
         )
-        
+
         # Process the voice samples directory directly
         voice_samples_dir = os.path.join(cfg.OUTPUT_DIR, "voice_samples")
-        clean_chunks = overlap_detector.process_audio_directory(voice_samples_dir)
+        clean_chunks = w2v_overlap_detector.process_audio_directory(voice_samples_dir)
 
         if clean_chunks:
             clean_chunks_file = os.path.join(cfg.OUTPUT_DIR, f"6_5_snapshot_{snapshot_id}_clean_chunks.csv")
             pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
-            report_file = overlap_detector.generate_report(clean_chunks)
 
             print(f"✅ Stage 6.5 completed!")
+            print(f"🤖 W2V-BERT processing successful")
             print(f"🔍 Clean chunks created: {len(clean_chunks)}")
-            print(f"📁 Clean chunks directory: {overlap_detector.output_dir}")
-            print(f"📄 Report: {report_file}")
+            print(f"📁 Clean chunks directory: {w2v_overlap_detector.output_dir}")
             print(f"📊 Results CSV: {clean_chunks_file}")
             print(f"🎵 Output format: WAV (16kHz mono)")
 
@@ -269,15 +250,17 @@ def main(input_file, force_recheck=False):
             clean_chunks_count = len(clean_chunks)
             removed_count = max(0, original_samples_count - clean_chunks_count)
 
-            print(f"\n🎯 MP3 → WAV Conversion & Overlap Detection Summary:")
-            print(f"📊 Original MP3 samples: {original_samples_count}")
-            print(f"✅ Clean WAV chunks kept: {clean_chunks_count}")
-            print(f"❌ Overlapping chunks removed: {removed_count}")
+            print(f"\n🎯 W2V-BERT MP3 → WAV Conversion & Processing Summary:")
+            print(f"  📊 Original MP3 samples: {original_samples_count}")
+            print(f"  ✅ Clean WAV chunks kept: {clean_chunks_count}")
+            print(f"  ❌ Overlapping/poor quality chunks removed: {removed_count}")
+            
             clean_chunk_rate = (clean_chunks_count / original_samples_count * 100) if original_samples_count > 0 else 0
-            print(f"📈 Clean chunk rate: {clean_chunk_rate:.1f}%")
-            print(f"🔄 Format conversion: MP3 → WAV (16kHz mono)")
+            print(f"  📈 Clean chunk rate: {clean_chunk_rate:.1f}%")
+            print(f"  🔄 Format conversion: MP3 → WAV (16kHz mono)")
+            print(f"  🤖 AI Model: W2V-BERT for speech processing")
 
-            print(f"\n🎵 Sample Clean WAV Chunks:")
+            print(f"\n🎵 Sample Clean WAV Chunks with Transcriptions:")
             for i, chunk in enumerate(clean_chunks[:3], 1):
                 clean_file = chunk.get('clean_chunk_file', 'N/A')
                 username = chunk.get('processed_username', 'unknown')
@@ -285,86 +268,103 @@ def main(input_file, force_recheck=False):
                 chunk_num = chunk.get('chunk_number', 1)
                 total_chunks = chunk.get('total_chunks', 1)
                 overlap_pct = chunk.get('overlap_percentage', 0)
-
-                print(f" {i}. {os.path.basename(clean_file)} (@{username} {platform})")
-                print(f" Chunk: {chunk_num}/{total_chunks} | Overlap: {overlap_pct:.1f}% | Format: WAV")
+                transcription = chunk.get('transcription', '')[:50] + "..." if chunk.get('transcription') else "N/A"
+                voice_pct = chunk.get('voice_percentage', 0)
+                
+                print(f"  {i}. {os.path.basename(clean_file)} (@{username} {platform})")
+                print(f"      Chunk: {chunk_num}/{total_chunks} | Voice: {voice_pct:.1f}% | Overlap: {overlap_pct:.1f}%")
+                print(f"      Transcription: {transcription}")
+                print(f"      Format: WAV | Model: W2V-BERT")
         else:
-            print("❌ No clean chunks found - all audio had overlapping voices")
+            print("❌ No clean chunks found - all audio had overlapping voices or poor quality")
             clean_chunks = []
     else:
         print("⏭️ Skipping Stage 6.5 - no MP3 audio samples extracted")
         clean_chunks = []
 
-    # Stage 7: Diarization Processing (Processes WAV files)
-    if clean_chunks and 'overlap_detector' in locals() and overlap_detector.output_dir:
-        print("\n🎤 STAGE 7: Diarization Processing (Voice Samples Input)")
+    # Stage 7: Advanced W2V-BERT Processing (Enhanced transcription and analysis)
+    if clean_chunks and 'w2v_overlap_detector' in locals() and w2v_overlap_detector.output_dir:
+        print("\n🎤 STAGE 7: Advanced W2V-BERT Processing (Enhanced Analysis)")
         print("-" * 60)
-        print("🔄 Processing clean WAV chunks with advanced diarization-first approach")
+        print("🤖 Processing clean WAV chunks with advanced W2V-BERT analysis")
+        print("📝 Generating detailed transcriptions and voice profiles")
 
         try:
-            processor = OverlapDetector(
-                output_dir=overlap_detector.output_dir,
+            advanced_processor = W2VBertOverlapDetector(
+                output_dir=os.path.join(cfg.OUTPUT_DIR, "stage7_processed"),
                 chunk_duration_minutes=5,
                 overlap_threshold=0.3,
-                vad_threshold=0.20,  # Increased from default 0.05 to filter music
+                vad_threshold=0.15,  # More sensitive for final processing
+                noise_reduction=False,  # Already cleaned in 6.5
+                max_workers=1,  # Conservative for memory
+                model_name="facebook/w2v-bert-2.0",
                 huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
             )
-            clean_audio_dir = overlap_detector.output_dir
-            wav_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.wav')]
-            print(f"📁 Processing {len(wav_files)} WAV files from: {clean_audio_dir}")
 
-            processed_results = processor.process_audio_directory(clean_audio_dir)
+            clean_audio_dir = w2v_overlap_detector.output_dir
+            wav_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.wav')]
+            print(f"📁 Processing {len(wav_files)} clean WAV files from: {clean_audio_dir}")
+
+            processed_results = advanced_processor.process_audio_directory(clean_audio_dir)
 
             if processed_results:
-                print(f"✅ Stage 7 diarization processing completed!")
-                print(f"🎤 Successfully processed: {len(processed_results)} WAV files")
-                print(f"📁 Final output directory: {processor.config.output_dir}")
+                print(f"✅ Stage 7 W2V-BERT advanced processing completed!")
+                print(f"🤖 Successfully processed: {len(processed_results)} WAV files")
+                print(f"📁 Final output directory: {advanced_processor.output_dir}")
 
-                stage7_results_file = os.path.join(cfg.OUTPUT_DIR, f"7_diarization_results_{snapshot_id}.csv")
+                stage7_results_file = os.path.join(cfg.OUTPUT_DIR, f"7_w2vbert_results_{snapshot_id}.csv")
+                enhanced_results = []
 
-                simplified_results = []
                 for result in processed_results:
-                    simplified_results.append({
-                        'input_file': result.get('input_file', ''),
-                        'output_file': result.get('output_file', ''),
-                        'primary_speaker': result.get('primary_speaker', ''),
-                        'segments_count': result.get('segments_count', 0),
-                        'voice_duration': result.get('voice_duration', 0),
-                        'processing_method': result.get('processing_method', ''),
-                        'processing_status': result.get('processing_status', ''),
+                    enhanced_results.append({
+                        'input_file': result.get('clean_chunk_file', ''),
+                        'output_file': result.get('clean_chunk_file', ''),
+                        'transcription': result.get('transcription', ''),
+                        'voice_percentage': result.get('voice_percentage', 0),
+                        'overlap_percentage': result.get('overlap_percentage', 0),
+                        'speakers_detected': result.get('speakers_detected', 1),
+                        'word_count': result.get('word_count', 0),
+                        'char_count': result.get('char_count', 0),
+                        'avg_confidence': result.get('avg_confidence', 0),
+                        'processing_method': result.get('processing_method', 'w2vbert'),
+                        'chunk_number': result.get('chunk_number', 1),
+                        'total_chunks': result.get('total_chunks', 1),
+                        'processed_username': result.get('processed_username', 'unknown'),
+                        'platform_source': result.get('platform_source', 'unknown'),
                         'input_format': 'WAV',
-                        'output_format': result.get('output_format', 'WAV'),
-                        'is_chunk': result.get('is_chunk', False),
-                        'original_mp3_source': result.get('original_mp3_source', '')
+                        'output_format': 'WAV + Transcription',
+                        'model_used': 'W2V-BERT-2.0'
                     })
 
-                pd.DataFrame(simplified_results).to_csv(stage7_results_file, index=False)
-                print(f"📊 Processing results saved: {stage7_results_file}")
+                pd.DataFrame(enhanced_results).to_csv(stage7_results_file, index=False)
+                print(f"📊 Enhanced processing results saved: {stage7_results_file}")
 
-                print(f"\n🎤 Sample Diarization Results:")
+                print(f"\n🎤 Sample W2V-BERT Advanced Processing Results:")
                 for i, result in enumerate(processed_results[:3], 1):
-                    input_file = os.path.basename(result.get('input_file', 'unknown'))
-                    primary_speaker = result.get('primary_speaker', 'unknown')
-                    voice_duration = result.get('voice_duration', 0)
-                    segments = result.get('segments_count', 0)
-                    print(f" {i}. {input_file}")
-                    print(f" Primary speaker: {primary_speaker}")
-                    print(f" Voice duration: {voice_duration:.1f}s ({segments} segments)")
-                    print(f" Input: WAV → Output: WAV (processed)")
+                    input_file = os.path.basename(result.get('clean_chunk_file', 'unknown'))
+                    transcription = result.get('transcription', '')[:80] + "..." if result.get('transcription') else 'N/A'
+                    voice_pct = result.get('voice_percentage', 0)
+                    word_count = result.get('word_count', 0)
+                    confidence = result.get('avg_confidence', 0)
+                    
+                    print(f"  {i}. {input_file}")
+                    print(f"      Voice Quality: {voice_pct:.1f}% | Words: {word_count} | Confidence: {confidence:.3f}")
+                    print(f"      Transcription: {transcription}")
+                    print(f"      Model: W2V-BERT-2.0 | Format: WAV + Transcript")
 
-                print(f"\n🔄 Audio Format Pipeline Summary:")
-                print(f"📥 Stage 6 Output: MP3 files ({len(extracted_samples)} samples)")
-                print(f"🔄 Stage 6.5 Processing: MP3 → WAV conversion + overlap detection")
-                print(f"📤 Stage 6.5 Output: WAV files ({len(clean_chunks)} clean chunks)")
-                print(f"🎤 Stage 7 Processing: WAV → processed WAV with diarization")
-                print(f"📤 Stage 7 Output: WAV files ({len(processed_results)} processed)")
-
+                print(f"\n🔄 Complete Audio Processing Pipeline Summary:")
+                print(f"  📥 Stage 6 Output: MP3 files ({len(extracted_samples)} samples)")
+                print(f"  🔄 Stage 6.5 Processing: MP3 → WAV + W2V-BERT analysis")
+                print(f"  📤 Stage 6.5 Output: Clean WAV files ({len(clean_chunks)} chunks)")
+                print(f"  🤖 Stage 7 Processing: Advanced W2V-BERT analysis + transcription")
+                print(f"  📤 Stage 7 Output: Enhanced WAV + transcripts ({len(processed_results)} files)")
+                print(f"  🎯 AI Model: W2V-BERT-2.0 throughout pipeline")
             else:
-                print("❌ Stage 7 diarization processing failed - no results returned")
+                print("❌ Stage 7 W2V-BERT advanced processing failed - no results returned")
                 processed_results = []
 
         except Exception as e:
-            print(f"❌ Stage 7 diarization processing failed: {e}")
+            print(f"❌ Stage 7 W2V-BERT advanced processing failed: {e}")
             print(f"💡 Check that WAV files exist in: {clean_audio_dir}")
             processed_results = []
     else:
@@ -372,7 +372,7 @@ def main(input_file, force_recheck=False):
         processed_results = []
 
     # Final comprehensive summary
-    print("\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
+    print("\n🎉 W2V-BERT ENHANCED PIPELINE COMPLETED SUCCESSFULLY!")
     print("=" * 60)
     print(f"📊 Total accounts processed: {len(valid_accounts)}")
     print(f"📥 Profiles downloaded: {len(profiles)}")
@@ -381,52 +381,218 @@ def main(input_file, force_recheck=False):
     print(f"🔊 Audio content confirmed: {len(audio_detected_links)}")
     print(f"🎙️ Voice content confirmed: {len(confirmed_voice)}")
     print(f"🎤 Voice samples extracted (MP3): {len(extracted_samples)}")
-    print(f"🔍 Clean chunks (WAV, no overlaps): {len(clean_chunks) if 'clean_chunks' in locals() else 0}")
-    print(f"🎤 Diarization processed (WAV): {len(processed_results) if 'processed_results' in locals() else 0}")
+    print(f"🤖 W2V-BERT clean chunks (WAV): {len(clean_chunks) if 'clean_chunks' in locals() else 0}")
+    print(f"📝 W2V-BERT processed + transcripts: {len(processed_results) if 'processed_results' in locals() else 0}")
 
     voice_confirmation_rate = (len(confirmed_voice) / len(audio_links) * 100) if audio_links else 0
     clean_chunk_rate = (len(clean_chunks) / len(extracted_samples) * 100) if extracted_samples and 'clean_chunks' in locals() else 0
-
+    
     print(f"📈 Voice confirmation rate: {voice_confirmation_rate:.1f}%")
-    print(f"📈 Clean chunk rate: {clean_chunk_rate:.1f}%")
+    print(f"📈 W2V-BERT clean chunk rate: {clean_chunk_rate:.1f}%")
     print(f"🆔 Snapshot ID: {snapshot_id}")
     print(f"📁 Results saved in: {cfg.OUTPUT_DIR}")
     print(f"🔄 Pipeline order: 1 → 2 → 3 → 4 → 5 → 6 → 6.5 → 7")
-    print(f"🎵 Audio format flow: MP3 (Stage 6) → WAV (Stage 6.5) → Processed WAV (Stage 7)")
+    print(f"🤖 AI Enhancement: W2V-BERT integration in stages 6.5 and 7")
+    print(f"🎵 Audio format flow: MP3 (Stage 6) → WAV + W2V-BERT (Stage 6.5) → Enhanced WAV + Transcripts (Stage 7)")
 
     # Final output files summary
     print(f"\n📄 Output Files Generated:")
-    print(f" 1. {existing_accounts_file} - Validated accounts")
-    print(f" 2. {profiles_file} - Profile data")
-    print(f" 3. {links_file} - External links")
-    print(f" 4. {audio_file} - YouTube/Twitch links")
-    print(f" 5. {audio_detected_file} - Audio content detected")
-
+    print(f"  1. {existing_accounts_file} - Validated accounts")
+    print(f"  2. {profiles_file} - Profile data")
+    print(f"  3. {links_file} - External links")
+    print(f"  4. {audio_file} - YouTube/Twitch links")
+    print(f"  5. {audio_detected_file} - Audio content detected")
+    
     if confirmed_voice:
-        print(f" 6. ⭐ CONFIRMED VOICE CONTENT: {len(confirmed_voice)} links")
-
+        print(f"  6. ⭐ CONFIRMED VOICE CONTENT: {len(confirmed_voice)} links")
+    
     if extracted_samples:
-        print(f" 7. {extraction_file} - 🎤 VOICE SAMPLE EXTRACTION RESULTS")
-        print(f" 8. {sample_extractor.output_dir} - 🎵 VOICE SAMPLES DIRECTORY (MP3)")
-
+        print(f"  7. {extraction_file} - 🎤 VOICE SAMPLE EXTRACTION RESULTS")
+        print(f"  8. {sample_extractor.output_dir} - 🎵 VOICE SAMPLES DIRECTORY (MP3)")
+    
     if 'clean_chunks' in locals() and clean_chunks:
-        print(f" 9. {clean_chunks_file} - 🔍 CLEAN CHUNKS METADATA")
-        print(f" 10. {overlap_detector.output_dir} - 🎵 CLEAN CHUNK AUDIO FILES (WAV)")
-
+        print(f"  9. {clean_chunks_file} - 🤖 W2V-BERT CLEAN CHUNKS METADATA")
+        print(f"  10. {w2v_overlap_detector.output_dir} - 🎵 W2V-BERT CLEAN AUDIO FILES (WAV)")
+    
     if 'processed_results' in locals() and processed_results:
-        print(f" 11. {stage7_results_file} - 🎤 STAGE 7 DIARIZATION RESULTS")
-        print(f" 12. {processor.config.output_dir} - 🎤 FINAL PROCESSED AUDIO FILES (WAV)")
+        print(f"  11. {stage7_results_file} - 📝 W2V-BERT ENHANCED RESULTS + TRANSCRIPTS")
+        print(f"  12. {advanced_processor.output_dir} - 🎤 FINAL W2V-BERT PROCESSED FILES")
 
+# Individual Stage Runner Functions (Updated for W2V-BERT)
 
-# Individual Stage Runner Functions
+def run_stage6_5_only(input_path, output_dir="output"):
+    """Run only Stage 6.5: W2V-BERT Audio Processing and Overlap Detection"""
+    print("🤖 STAGE 6.5 ONLY: W2V-BERT Audio Processing and Overlap Detection")
+    print("=" * 60)
+
+    if os.path.isdir(input_path):
+        print(f"📁 Processing audio files from directory: {input_path}")
+        cfg = Config()
+        
+        w2v_overlap_detector = W2VBertOverlapDetector(
+            output_dir=os.path.join(output_dir, "clean_chunks"),
+            chunk_duration_minutes=5,
+            overlap_threshold=0.3,
+            vad_threshold=0.20,
+            noise_reduction=True,
+            max_workers=2,
+            model_name="facebook/w2v-bert-2.0",
+            huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
+        )
+
+        clean_chunks = w2v_overlap_detector.process_audio_directory(input_path)
+
+        if clean_chunks:
+            import time
+            timestamp = int(time.time())
+            clean_chunks_file = os.path.join(output_dir, f"6_5_w2vbert_audio_dir_{timestamp}_clean_chunks.csv")
+            pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
+
+            print(f"✅ Stage 6.5 completed!")
+            print(f"🤖 W2V-BERT processing successful")
+            print(f"🔍 Clean chunks created: {len(clean_chunks)}")
+            print(f"📁 Clean chunks directory: {w2v_overlap_detector.output_dir}")
+            print(f"📊 Results CSV: {clean_chunks_file}")
+            print(f"💡 Next: Run Stage 7 with --stage7-only {w2v_overlap_detector.output_dir}")
+            
+            # Show sample transcriptions
+            print(f"\n📝 Sample W2V-BERT Transcriptions:")
+            for i, chunk in enumerate(clean_chunks[:3], 1):
+                transcription = chunk.get('transcription', '')[:100] + "..." if chunk.get('transcription') else 'N/A'
+                voice_pct = chunk.get('voice_percentage', 0)
+                print(f"  {i}. Voice: {voice_pct:.1f}% | Text: {transcription}")
+        else:
+            print("❌ No clean chunks found")
+    else:
+        if not os.path.exists(input_path):
+            print(f"❌ Input file/directory not found: {input_path}")
+            return
+
+        try:
+            df = pd.read_csv(input_path)
+            extracted_samples = df.to_dict('records')
+            print(f"📥 Loaded {len(extracted_samples)} extracted samples from CSV: {input_path}")
+
+            cfg = Config()
+            w2v_overlap_detector = W2VBertOverlapDetector(
+                output_dir=os.path.join(output_dir, "clean_chunks"),
+                chunk_duration_minutes=5,
+                overlap_threshold=0.3,
+                vad_threshold=0.20,
+                noise_reduction=True,
+                max_workers=2,
+                model_name="facebook/w2v-bert-2.0",
+                huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
+            )
+
+            clean_chunks = w2v_overlap_detector.process_extracted_samples(extracted_samples)
+
+            if clean_chunks:
+                base_name = os.path.splitext(os.path.basename(input_path))[0]
+                clean_chunks_file = os.path.join(output_dir, f"6_5_w2vbert_{base_name}_clean_chunks.csv")
+                pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
+
+                print(f"✅ Stage 6.5 completed!")
+                print(f"🤖 W2V-BERT processing successful")
+                print(f"🔍 Clean chunks created: {len(clean_chunks)}")
+                print(f"📁 Clean chunks directory: {w2v_overlap_detector.output_dir}")
+                print(f"📊 Results CSV: {clean_chunks_file}")
+                print(f"💡 Next: Run Stage 7 with --stage7-only {w2v_overlap_detector.output_dir}")
+            else:
+                print("❌ No clean chunks found")
+
+        except Exception as e:
+            print(f"❌ Error processing input: {e}")
+
+def run_stage7_only(voice_samples_dir, output_dir="stage7_output"):
+    """Run only Stage 7: Advanced W2V-BERT Processing (Enhanced Analysis)"""
+    print("🤖 STAGE 7 ONLY: Advanced W2V-BERT Processing (Enhanced Analysis)")
+    print("=" * 60)
+
+    cfg = Config()
+    if not os.path.exists(voice_samples_dir):
+        print(f"❌ Voice samples directory not found: {voice_samples_dir}")
+        return
+
+    wav_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.wav')]
+    mp3_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.mp3')]
+
+    if not wav_files and not mp3_files:
+        print(f"❌ No audio files (WAV/MP3) found in: {voice_samples_dir}")
+        return
+
+    print(f"📥 Found {len(wav_files)} WAV files and {len(mp3_files)} MP3 files to process")
+    print(f"🤖 Using W2V-BERT for advanced speech analysis and transcription")
+
+    if mp3_files:
+        print("🔄 MP3 files will be converted to WAV for W2V-BERT processing")
+
+    try:
+        advanced_processor = W2VBertOverlapDetector(
+            output_dir=output_dir,
+            chunk_duration_minutes=5,
+            overlap_threshold=0.3,
+            vad_threshold=0.15,  # More sensitive for final processing
+            noise_reduction=False,  # Assume already cleaned
+            max_workers=1,  # Conservative for memory
+            model_name="facebook/w2v-bert-2.0",
+            huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
+        )
+
+        processed_results = advanced_processor.process_audio_directory(voice_samples_dir)
+
+        if processed_results:
+            print(f"✅ Stage 7 W2V-BERT advanced processing completed!")
+            print(f"🤖 Successfully processed: {len(processed_results)} files")
+            print(f"📁 Output directory: {advanced_processor.output_dir}")
+
+            # Save enhanced results with transcriptions
+            results_file = os.path.join(output_dir, "w2vbert_enhanced_results.csv")
+            enhanced_results = []
+
+            for result in processed_results:
+                enhanced_results.append({
+                    'input_file': result.get('clean_chunk_file', ''),
+                    'transcription': result.get('transcription', ''),
+                    'voice_percentage': result.get('voice_percentage', 0),
+                    'overlap_percentage': result.get('overlap_percentage', 0),
+                    'word_count': result.get('word_count', 0),
+                    'char_count': result.get('char_count', 0),
+                    'avg_confidence': result.get('avg_confidence', 0),
+                    'speakers_detected': result.get('speakers_detected', 1),
+                    'processing_method': result.get('processing_method', 'w2vbert'),
+                    'model_used': 'W2V-BERT-2.0'
+                })
+
+            pd.DataFrame(enhanced_results).to_csv(results_file, index=False)
+            print(f"📊 Enhanced results saved: {results_file}")
+
+            print(f"\n📝 Sample W2V-BERT Processing Results:")
+            for i, result in enumerate(processed_results[:3], 1):
+                input_file = os.path.basename(result.get('clean_chunk_file', 'unknown'))
+                transcription = result.get('transcription', '')[:80] + "..." if result.get('transcription') else 'N/A'
+                voice_pct = result.get('voice_percentage', 0)
+                word_count = result.get('word_count', 0)
+                
+                print(f"  {i}. {input_file}")
+                print(f"      Voice: {voice_pct:.1f}% | Words: {word_count}")
+                print(f"      Transcript: {transcription}")
+                print(f"      Model: W2V-BERT-2.0")
+        else:
+            print("❌ No files could be processed successfully")
+
+    except Exception as e:
+        print(f"❌ Stage 7 W2V-BERT processing error: {e}")
+
+# Keep all other existing functions (run_stage1_only through run_stage6_only) unchanged
 def run_stage1_only(input_file, force_recheck=False):
     """Run only Stage 1: Account Validation"""
     cfg = Config()
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     print("✅ STAGE 1 ONLY: Account Validation")
     print("=" * 50)
+    
     log_file = os.path.join(cfg.OUTPUT_DIR, "processed_accounts.json")
-
     validator = AccountValidator(
         max_concurrent=cfg.MAX_CONCURRENT_VALIDATIONS,
         delay_min=cfg.VALIDATION_DELAY_MIN,
@@ -435,7 +601,6 @@ def run_stage1_only(input_file, force_recheck=False):
     )
 
     existing_accounts_file = os.path.join(cfg.OUTPUT_DIR, "1_existing_accounts.csv")
-
     valid_accounts = validator.validate_accounts_from_file(
         input_file, existing_accounts_file, force_recheck=force_recheck
     )
@@ -445,13 +610,12 @@ def run_stage1_only(input_file, force_recheck=False):
     print(f"📁 Output file: {existing_accounts_file}")
     print(f"💡 Next: Run Stage 2 with --stage2-only {existing_accounts_file}")
 
-
 def run_stage2_only(accounts_file):
     """Run only Stage 2: Bright Data Trigger"""
     cfg = Config()
     print("🚀 STAGE 2 ONLY: Bright Data Trigger")
     print("=" * 50)
-
+    
     if not os.path.exists(accounts_file):
         print(f"❌ Accounts file not found: {accounts_file}")
         return None
@@ -459,7 +623,6 @@ def run_stage2_only(accounts_file):
     df = pd.read_csv(accounts_file)
     valid_accounts = df.to_dict('records')
     usernames = [acc['username'] for acc in valid_accounts]
-
     print(f"📥 Loaded {len(usernames)} accounts from: {accounts_file}")
 
     sm = SnapshotManager(cfg.OUTPUT_DIR)
@@ -480,16 +643,14 @@ def run_stage2_only(accounts_file):
     print(f"✅ Stage 2 completed!")
     print(f"🆔 Snapshot ID: {snapshot_id}")
     print(f"💡 Next: Run Stage 3 with --stage3-only {snapshot_id}")
-
     return snapshot_id
-
 
 def run_stage3_only(snapshot_id):
     """Run only Stage 3: Data Download"""
     cfg = Config()
     print("⬇️ STAGE 3 ONLY: Data Download")
     print("=" * 50)
-
+    
     downloader = BrightDataDownloader(cfg.BRIGHT_DATA_API_TOKEN)
     profiles = downloader.wait_and_download_snapshot(snapshot_id, cfg.MAX_SNAPSHOT_WAIT)
 
@@ -502,33 +663,30 @@ def run_stage3_only(snapshot_id):
     print(f"📊 Saved {len(profiles)} profiles to: {profiles_file}")
 
     links = downloader.extract_external_links(profiles)
-
     if not links:
         print("🔗 No external links found")
         return None
 
     links_file = os.path.join(cfg.OUTPUT_DIR, f"3_snapshot_{snapshot_id}_external_links.csv")
     pd.DataFrame(links).to_csv(links_file, index=False)
+    
     print(f"✅ Stage 3 completed!")
     print(f"🔗 External links found: {len(links)}")
     print(f"📁 Links file: {links_file}")
     print(f"💡 Next: Run Stage 4 with --stage4-only {links_file}")
-
     return links_file
-
 
 def run_stage3_5_only(links_file):
     """Run only Stage 3.5: YouTube & Twitch Channel Discovery"""
     print("🔍 STAGE 3.5 ONLY: YouTube & Twitch Channel Discovery")
     print("=" * 50)
-
+    
     if not os.path.exists(links_file):
         print(f"❌ Links file not found: {links_file}")
         return None
 
     df = pd.read_csv(links_file)
     links = df.to_dict('records')
-
     print(f"📥 Loaded {len(links)} links from: {links_file}")
 
     runner = Step3_5_YouTubeTwitchRunner("output")
@@ -544,19 +702,17 @@ def run_stage3_5_only(links_file):
 
     return enhanced_file
 
-
 def run_stage4_only(links_file):
     """Run only Stage 4: YouTube, Twitch & TikTok Audio Platform Filtering"""
     print("🎯 STAGE 4 ONLY: YouTube, Twitch & TikTok Audio Platform Filtering")
     print("=" * 50)
-
+    
     if not os.path.exists(links_file):
         print(f"❌ Links file not found: {links_file}")
         return None
 
     df = pd.read_csv(links_file)
     links = df.to_dict('records')
-
     print(f"📥 Loaded {len(links)} links from: {links_file}")
 
     audio_filter = AudioContentFilter()
@@ -579,30 +735,25 @@ def run_stage4_only(links_file):
     print(f"🎯 YouTube/Twitch/TikTok links: {len(audio_links)}")
     print("📊 Platform breakdown:")
     for platform, count in platform_counts.items():
-        print(f" {platform}: {count}")
-
+        print(f"  {platform}: {count}")
     print(f"📁 Audio file: {audio_file}")
     print(f"💡 Next: Run Stage 5 with --stage5-only {audio_file}")
-
     return audio_file
-
 
 def run_stage5_only(audio_links_file):
     """Run only Stage 5: Enhanced Audio Content Detection"""
     print("🎵 STAGE 5 ONLY: Enhanced YouTube, Twitch & TikTok Audio Content Detection")
     print("=" * 50)
-
+    
     if not os.path.exists(audio_links_file):
         print(f"❌ Audio links file not found: {audio_links_file}")
         return None
 
     df = pd.read_csv(audio_links_file)
     audio_links = df.to_dict('records')
-
     print(f"📥 Loaded {len(audio_links)} audio links from: {audio_links_file}")
 
     cfg = Config()
-
     audio_detector = AudioContentDetector(
         timeout=15,
         huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
@@ -620,7 +771,6 @@ def run_stage5_only(audio_links_file):
 
     audio_types = {}
     confidence_levels = {}
-
     for link in audio_detected_links:
         audio_type = link.get('audio_type', 'unknown')
         confidence = link.get('audio_confidence', 'unknown')
@@ -630,35 +780,26 @@ def run_stage5_only(audio_links_file):
     print(f"✅ Stage 5 completed!")
     print(f"🔊 Audio content detected: {len(audio_detected_links)}")
     print("📊 Audio Content Breakdown:")
-    print(" Audio Types:")
-
+    print("  Audio Types:")
     for audio_type, count in sorted(audio_types.items(), key=lambda x: x[1], reverse=True):
-        print(f" {audio_type}: {count}")
-
-    print(" Confidence Levels:")
+        print(f"    {audio_type}: {count}")
+    print("  Confidence Levels:")
     for confidence, count in confidence_levels.items():
-        print(f" {confidence}: {count}")
-
+        print(f"    {confidence}: {count}")
     print(f"📁 Audio detected file: {audio_detected_file}")
     print(f"💡 Next: Run Stage 6 with --stage6-only {audio_detected_file}")
-
     return audio_detected_file
-
 
 def run_stage6_only(confirmed_voice_file, output_dir="output"):
     """Run only Stage 6: Voice Sample Extraction (MP3 Output) - Direct import, no subprocess"""
     print("🎤 STAGE 6 ONLY: Voice Sample Extraction (MP3 Output)")
     print("=" * 50)
-
+    
     if not os.path.exists(confirmed_voice_file):
         print(f"❌ Confirmed voice file not found: {confirmed_voice_file}")
         return
 
     try:
-        # Direct import and usage - no subprocess overhead
-        from step6_voice_sample_extractor import AudioDownloader, save_results
-        
-        # Load data directly
         df = pd.read_csv(confirmed_voice_file)
         confirmed_voice = df.to_dict('records')
         print(f"📥 Loaded {len(confirmed_voice)} confirmed voice links from: {confirmed_voice_file}")
@@ -667,11 +808,10 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
             print("❌ No confirmed voice links found in file")
             return
 
-        # Initialize and run directly - same as test.py
         voice_samples_dir = os.path.join(output_dir, "voice_samples")
         sample_extractor = AudioDownloader(voice_samples_dir)
-        
         print("🚀 Starting direct audio download process...")
+
         extracted_samples = sample_extractor.download_audio_for_all(confirmed_voice)
 
         if extracted_samples:
@@ -686,168 +826,53 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         else:
             print("❌ No voice samples could be extracted")
             print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
-            
+
     except Exception as e:
         print(f"❌ Error running Stage 6: {e}")
 
-
-def run_stage6_5_only(input_path, output_dir="output"):
-    """Run only Stage 6.5: Audio Chunking and Overlap Detection"""
-    print("🔍 STAGE 6.5 ONLY: Audio Chunking and Overlap Detection")
-    print("=" * 50)
-
-    if os.path.isdir(input_path):
-        print(f"📁 Processing audio files from directory: {input_path}")
-        cfg = Config()
-        overlap_detector = OverlapDetector(
-            output_dir=os.path.join(output_dir, "clean_chunks"),
-            chunk_duration_minutes=5,
-            overlap_threshold=0.3,
-            vad_threshold=0.20,  # Increased from default 0.05 to filter music
-            huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
-        )
-
-        clean_chunks = overlap_detector.process_audio_directory(input_path)
-
-        if clean_chunks:
-            import time
-            timestamp = int(time.time())
-
-            clean_chunks_file = os.path.join(output_dir, f"6_5_audio_dir_{timestamp}_clean_chunks.csv")
-            pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
-
-            report_file = overlap_detector.generate_report(clean_chunks)
-            print(f"✅ Stage 6.5 completed!")
-            print(f"🔍 Clean chunks created: {len(clean_chunks)}")
-            print(f"📁 Clean chunks directory: {overlap_detector.output_dir}")
-            print(f"📄 Report: {report_file}")
-            print(f"📊 Results CSV: {clean_chunks_file}")
-            print(f"💡 Next: Run Stage 7 with --stage7-only {overlap_detector.output_dir}")
-        else:
-            print("❌ No clean chunks found")
-    else:
-        if not os.path.exists(input_path):
-            print(f"❌ Input file/directory not found: {input_path}")
-            return
-
-        try:
-            df = pd.read_csv(input_path)
-            extracted_samples = df.to_dict('records')
-            print(f"📥 Loaded {len(extracted_samples)} extracted samples from CSV: {input_path}")
-
-            cfg = Config()
-            overlap_detector = OverlapDetector(
-                output_dir=os.path.join(output_dir, "clean_chunks"),
-                chunk_duration_minutes=5,
-                overlap_threshold=0.3,
-                vad_threshold=0.20,  # Increased from default 0.05 to filter music
-                huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
-            )
-
-            clean_chunks = overlap_detector.process_extracted_samples(extracted_samples)
-
-            if clean_chunks:
-                base_name = os.path.splitext(os.path.basename(input_path))[0]
-                clean_chunks_file = os.path.join(output_dir, f"6_5_{base_name}_clean_chunks.csv")
-                pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
-
-                report_file = overlap_detector.generate_report(clean_chunks)
-                print(f"✅ Stage 6.5 completed!")
-                print(f"🔍 Clean chunks created: {len(clean_chunks)}")
-                print(f"📁 Clean chunks directory: {overlap_detector.output_dir}")
-                print(f"📄 Report: {report_file}")
-                print(f"📊 Results CSV: {clean_chunks_file}")
-                print(f"💡 Next: Run Stage 7 with --stage7-only {overlap_detector.output_dir}")
-            else:
-                print("❌ No clean chunks found")
-        except Exception as e:
-            print(f"❌ Error processing input: {e}")
-
-
-def run_stage7_only(voice_samples_dir, output_dir="stage7_output"):
-    """Run only Stage 7: Diarization Processing (Voice Samples Input)"""
-    print("🎤 STAGE 7 ONLY: Diarization Processing (Voice Samples Input)")
-    print("=" * 50)
-
-    # Initialize config
-    cfg = Config()
-
-    if not os.path.exists(voice_samples_dir):
-        print(f"❌ Voice samples directory not found: {voice_samples_dir}")
-        return
-
-    wav_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.wav')]
-    mp3_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.mp3')]
-
-    if not wav_files and not mp3_files:
-        print(f"❌ No audio files (WAV/MP3) found in: {voice_samples_dir}")
-        return
-
-    print(f"📥 Found {len(wav_files)} WAV files and {len(mp3_files)} MP3 files to process")
-
-    if mp3_files:
-        print("🔄 MP3 files will be converted to WAV for processing")
-
-    try:
-        processor = OverlapDetector(
-            output_dir=output_dir,
-            chunk_duration_minutes=5,
-            overlap_threshold=0.3,
-            vad_threshold=0.20,  # Increased from default 0.05 to filter music
-            huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
-        )
-        processed_results = processor.process_audio_directory(voice_samples_dir)
-
-        if processed_results:
-            print(f"✅ Stage 7 diarization processing completed!")
-            print(f"🎤 Successfully processed: {len(processed_results)} files")
-            print(f"📁 Output directory: {processor.config.output_dir}")
-
-            print(f"\n🎤 Sample Diarization Results:")
-            for i, result in enumerate(processed_results[:3], 1):
-                input_file = os.path.basename(result.get('input_file', 'unknown'))
-                primary_speaker = result.get('primary_speaker', 'unknown')
-                voice_duration = result.get('voice_duration', 0)
-                input_format = "WAV" if input_file.lower().endswith('.wav') else "MP3→WAV"
-
-                print(f" {i}. {input_file} ({input_format})")
-                print(f" Primary speaker: {primary_speaker} ({voice_duration:.1f}s)")
-        else:
-            print("❌ No files could be processed successfully")
-
-    except Exception as e:
-        print(f"❌ Stage 7 diarization processing error: {e}")
-
-
 def show_help():
     help_text = """
-🎙️ YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE
+🤖 W2V-BERT ENHANCED YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE
 
 PIPELINE FLOW:
-1→2→3→4→5→6→6.5→7
+1→2→3→4→5→6→6.5(W2V-BERT)→7(W2V-BERT Enhanced)
 
 INDIVIDUAL STAGES:
---stage1-only FILE Stage 1: Account Validation
---stage2-only FILE Stage 2: Bright Data Trigger
---stage3-only SNAPSHOT Stage 3: Data Download
---stage3_5-only FILE Stage 3.5: YouTube/Twitch Channel Discovery
---stage4-only FILE Stage 4: YouTube/Twitch Filter
---stage5-only FILE Stage 5: Audio Detection (FINAL VOICE DECISION)
---stage6-only FILE Stage 6: Voice Sample Extraction
---stage6_5-only FILE Stage 6.5: Audio Chunking & Overlap Detection
---stage7-only DIR Stage 7: Diarization Processing
+--stage1-only FILE      Stage 1: Account Validation
+--stage2-only FILE      Stage 2: Bright Data Trigger
+--stage3-only SNAPSHOT  Stage 3: Data Download
+--stage3_5-only FILE    Stage 3.5: YouTube/Twitch Channel Discovery
+--stage4-only FILE      Stage 4: YouTube/Twitch Filter
+--stage5-only FILE      Stage 5: Audio Detection (FINAL VOICE DECISION)
+--stage6-only FILE      Stage 6: Voice Sample Extraction (MP3 Output)
+--stage6_5-only DIR     Stage 6.5: W2V-BERT Processing & Overlap Detection
+--stage7-only DIR       Stage 7: Advanced W2V-BERT Analysis + Transcription
+
+🤖 W2V-BERT ENHANCEMENTS:
+- Stage 6.5: W2V-BERT voice activity detection and overlap detection
+- Stage 7: Advanced W2V-BERT transcription and analysis
+- Automatic MP3 → WAV conversion for W2V-BERT processing
+- Enhanced speech quality analysis with confidence scores
+- Full transcription generation for all audio chunks
+
+📝 TRANSCRIPTION FEATURES:
+- Real-time speech-to-text using W2V-BERT-2.0
+- Voice quality assessment and confidence scoring
+- Intelligent overlap detection using transcription analysis
+- Word count and character count metrics per chunk
 
 NOTES:
-- Step 4.5 was removed
-- Step 5 is now the final audio detection and voice decision stage
-- Step 6 uses your existing step6_voice_sample_extractor.py implementation
+- W2V-BERT model automatically downloads on first use
+- Memory usage optimized with configurable worker limits
+- All transcriptions saved with processing results
+- Compatible with existing pipeline stages 1-6
 """
     print(help_text)
 
-
+# Main execution logic remains the same but with updated help text
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="YouTube/Twitch/TikTok Voice Pipeline with MP3→WAV Conversion",
+        description="W2V-BERT Enhanced YouTube/Twitch/TikTok Voice Pipeline with Transcription",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
@@ -862,8 +887,8 @@ if __name__ == "__main__":
     parser.add_argument("--stage4-only", help="Run only Stage 4 - Platform filtering")
     parser.add_argument("--stage5-only", help="Run only Stage 5 - Audio detection")
     parser.add_argument("--stage6-only", help="Run only Stage 6 - Voice sample extraction (MP3)")
-    parser.add_argument("--stage6_5-only", help="Run only Stage 6.5 - Audio chunking & overlap detection (MP3→WAV)")
-    parser.add_argument("--stage7-only", help="Run only Stage 7 - Diarization processing (WAV)")
+    parser.add_argument("--stage6_5-only", help="Run only Stage 6.5 - W2V-BERT processing & overlap detection")
+    parser.add_argument("--stage7-only", help="Run only Stage 7 - Advanced W2V-BERT analysis + transcription")
 
     # Information commands
     parser.add_argument("--show-log", action="store_true", help="Show account validation log")
@@ -927,14 +952,14 @@ if __name__ == "__main__":
 
     if args.stage6_5_only:
         if not os.path.exists(args.stage6_5_only):
-            print(f"❌ Extracted samples file not found: {args.stage6_5_only}")
+            print(f"❌ Input path not found: {args.stage6_5_only}")
             sys.exit(1)
         run_stage6_5_only(args.stage6_5_only, "output")
         sys.exit(0)
 
     if args.stage7_only:
         if not os.path.exists(args.stage7_only):
-            print(f"❌ Clean audio directory not found: {args.stage7_only}")
+            print(f"❌ Audio directory not found: {args.stage7_only}")
             sys.exit(1)
         run_stage7_only(args.stage7_only, "stage7_output")
         sys.exit(0)
@@ -972,10 +997,10 @@ if __name__ == "__main__":
             sys.exit(1)
 
         try:
-            print(f"🚀 Starting 7-stage pipeline with MP3→WAV conversion")
+            print(f"🚀 Starting W2V-BERT enhanced 7-stage pipeline")
+            print(f"🤖 AI Model: W2V-BERT-2.0 for speech processing and transcription")
             print(f"🔄 Force recheck: {'Yes' if args.force_recheck else 'No (using cache)'}")
-            print(f"🎵 Audio flow: Stage 6 (MP3) → Stage 6.5 (MP3→WAV) → Stage 7 (WAV)")
-
+            print(f"🎵 Audio flow: Stage 6 (MP3) → Stage 6.5 (W2V-BERT) → Stage 7 (Enhanced)")
             main(args.input, args.force_recheck)
         except KeyboardInterrupt:
             print("\n⏹️ Pipeline interrupted by user (Ctrl+C)")
@@ -989,10 +1014,9 @@ if __name__ == "__main__":
         print("❌ No action specified.")
         print("💡 Use --input FILE for full pipeline or --help-detailed for usage guide")
         print("\n🎯 Quick start examples:")
-        print(" python main_pipeline.py --input usernames.csv")
-        print(" python main_pipeline.py --stage6_5-only output/voice_samples/")
-        print(" python main_pipeline.py --stage7-only output/clean_chunks")
-        print("\n🔄 Pipeline: 1→2→3→4→5→6→6.5→7")
-        print("🎵 Audio: MP3 (Stage 6) → WAV (Stage 6.5) → Processed WAV (Stage 7)")
-
+        print("  python main_pipeline.py --input usernames.csv")
+        print("  python main_pipeline.py --stage6_5-only output/voice_samples/")
+        print("  python main_pipeline.py --stage7-only output/clean_chunks")
+        print("\n🔄 Pipeline: 1→2→3→4→5→6→6.5(W2V-BERT)→7(Enhanced)")
+        print("🤖 Enhanced: W2V-BERT speech processing and transcription in stages 6.5 and 7")
         sys.exit(1)

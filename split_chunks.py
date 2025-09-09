@@ -56,7 +56,7 @@ def split_mp3_to_wav_chunks(input_mp3_path: str, output_dir: str, chunk_length_s
 
 # Example usage:
 if __name__ == '__main__':
-    input_mp3 = '/Users/margotiamanova/Desktop/PROJECTS/x-audio-content-pipeline/output_audio2/jumpersjump_audio_part1mp3.mp3'
+    input_mp3 = '/Users/margotiamanova/Desktop/PROJECTS/x-audio-content-pipeline/output_audio2/cdawgva_audio_part1mp3.mp3'
     output_directory = 'wav_chunks'
     result_chunks = split_mp3_to_wav_chunks(input_mp3, output_directory)
     print(f'Created {len(result_chunks)} WAV chunks:')
