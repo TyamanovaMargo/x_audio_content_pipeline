@@ -11,6 +11,8 @@ import torch
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import librosa
+import whisper
+import re
 
 class OverlapDetector:
     def __init__(self, output_dir="clean_chunks", chunk_duration_minutes=6,
@@ -546,7 +548,7 @@ class OverlapDetector:
 
     def _detect_voice_activity(self, audio_path: str) -> Dict:
         """
-        Detect voice activity using pyannote VAD or fallback energy-based method
+        Detect voice activity using pyannote VAD or fallback method
         Returns dict with voice_percentage and has_voice status
         """
         try:
@@ -574,35 +576,98 @@ class OverlapDetector:
                 except Exception as e:
                     self.logger.warning(f"⚠️ Pyannote VAD failed: {e}, using fallback")
 
-            # Fallback: Energy-based voice activity detection using librosa
+            # Fallback: Enhanced Voice vs Music detection using librosa
             try:
                 y, sr = librosa.load(audio_path, sr=16000)
                 
-                # Calculate energy and zero-crossing rate
+                # Calculate multiple features for voice detection
                 frame_length = int(0.025 * sr)  # 25ms frames
                 hop_length = int(0.010 * sr)    # 10ms hop
                 
-                # RMS energy
+                # 1. RMS energy
                 rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
                 
-                # Zero-crossing rate
-                zcr = librosa.feature.zero_crossing_rate(y, sr=sr, frame_length=frame_length, hop_length=hop_length)[0]
+                # 2. Zero-crossing rate (voice has moderate ZCR, music often higher)
+                zcr = librosa.feature.zero_crossing_rate(y, frame_length=frame_length, hop_length=hop_length)[0]
                 
-                # Voice activity based on energy and ZCR thresholds
-                energy_threshold = np.percentile(rms, 30)  # 30th percentile as threshold
-                zcr_threshold = np.percentile(zcr, 70)     # 70th percentile as threshold
+                # 3. Spectral centroid (voice typically 1-4kHz, music more varied)
+                spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
                 
-                # Voice frames are those with moderate energy and ZCR (typical of speech)
-                voice_frames = (rms > energy_threshold) & (zcr < zcr_threshold)
-                voice_percentage = (np.sum(voice_frames) / len(voice_frames)) * 100
-                has_voice = voice_percentage > (self.vad_threshold * 100)
+                # 4. MFCCs (voice has characteristic patterns)
+                mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop_length)
+                
+                # 5. Spectral rolloff (voice has specific rolloff patterns)
+                spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr, hop_length=hop_length)[0]
+                
+                # 6. Fundamental frequency detection (human voice range)
+                try:
+                    f0 = librosa.yin(y, fmin=80, fmax=400, sr=sr)
+                    valid_f0_frames = ~np.isnan(f0)
+                    f0_percentage = np.sum(valid_f0_frames) / len(f0) * 100 if len(f0) > 0 else 0
+                except:
+                    f0_percentage = 0
+                
+                # Voice detection criteria - much stricter
+                energy_threshold = np.percentile(rms, 40)  # Higher energy threshold
+                
+                # Voice-specific frequency range (human speech is typically 300-3400 Hz)
+                voice_centroid_frames = (spectral_centroids >= 300) & (spectral_centroids <= 3400)
+                voice_centroid_percentage = np.sum(voice_centroid_frames) / len(voice_centroid_frames) * 100
+                
+                # ZCR should be moderate for voice (not too high like music)
+                moderate_zcr_frames = zcr < np.percentile(zcr, 60)
+                moderate_zcr_percentage = np.sum(moderate_zcr_frames) / len(moderate_zcr_frames) * 100
+                
+                # Energy-based voice frames
+                energy_voice_frames = rms > energy_threshold
+                energy_voice_percentage = np.sum(energy_voice_frames) / len(energy_voice_frames) * 100
+                
+                # MFCC consistency check (voice has more consistent patterns)
+                mfcc_variance = np.var(mfccs, axis=1)
+                mfcc_consistency_score = 1 / (1 + np.mean(mfcc_variance))
+                
+                # Combine all criteria for strict voice detection
+                # All conditions must be met for voice detection
+                voice_criteria = {
+                    'energy_voice': energy_voice_percentage > 30,  # At least 30% energy activity
+                    'voice_frequency': voice_centroid_percentage > 60,  # 60% in voice frequency range
+                    'moderate_zcr': moderate_zcr_percentage > 50,  # 50% moderate ZCR
+                    'fundamental_freq': f0_percentage > 15,  # At least 15% valid F0
+                    'mfcc_consistent': mfcc_consistency_score > 0.3  # Consistent MFCC patterns
+                }
+                
+                # Count how many criteria are met
+                criteria_met = sum(voice_criteria.values())
+                min_criteria_required = 4  # At least 4 out of 5 criteria must be met
+                
+                # Final voice percentage is the minimum of all percentages
+                voice_percentage = min(
+                    energy_voice_percentage,
+                    voice_centroid_percentage,
+                    moderate_zcr_percentage,
+                    max(f0_percentage * 4, 20)  # Scale F0 percentage
+                ) if criteria_met >= min_criteria_required else 0
+                
+                has_voice = voice_percentage > (self.vad_threshold * 100) and criteria_met >= min_criteria_required
+                
+                # Log detailed analysis for debugging
+                self.logger.info(f"🔍 Voice analysis: energy={energy_voice_percentage:.1f}%, "
+                               f"freq_range={voice_centroid_percentage:.1f}%, "
+                               f"zcr={moderate_zcr_percentage:.1f}%, "
+                               f"f0={f0_percentage:.1f}%, "
+                               f"criteria_met={criteria_met}/{len(voice_criteria)}")
                 
                 return {
                     'voice_percentage': voice_percentage,
                     'has_voice': has_voice,
-                    'method': 'energy_zcr_fallback',
-                    'total_frames': len(voice_frames),
-                    'voice_frames': np.sum(voice_frames)
+                    'method': 'enhanced_multi_feature_analysis',
+                    'criteria_met': criteria_met,
+                    'min_required': min_criteria_required,
+                    'energy_voice_pct': energy_voice_percentage,
+                    'voice_freq_pct': voice_centroid_percentage,
+                    'moderate_zcr_pct': moderate_zcr_percentage,
+                    'f0_pct': f0_percentage,
+                    'mfcc_consistency': mfcc_consistency_score
                 }
                 
             except Exception as e:

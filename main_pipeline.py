@@ -243,6 +243,7 @@ def main(input_file, force_recheck=False):
             output_dir=os.path.join(cfg.OUTPUT_DIR, "clean_chunks"),
             chunk_duration_minutes=5,
             overlap_threshold=0.3,
+            vad_threshold=0.20,  # Increased from default 0.05 to filter music
             huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
         )
         
@@ -303,6 +304,9 @@ def main(input_file, force_recheck=False):
         try:
             processor = OverlapDetector(
                 output_dir=overlap_detector.output_dir,
+                chunk_duration_minutes=5,
+                overlap_threshold=0.3,
+                vad_threshold=0.20,  # Increased from default 0.05 to filter music
                 huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
             )
             clean_audio_dir = overlap_detector.output_dir
@@ -699,6 +703,7 @@ def run_stage6_5_only(input_path, output_dir="output"):
             output_dir=os.path.join(output_dir, "clean_chunks"),
             chunk_duration_minutes=5,
             overlap_threshold=0.3,
+            vad_threshold=0.20,  # Increased from default 0.05 to filter music
             huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
         )
 
@@ -735,6 +740,7 @@ def run_stage6_5_only(input_path, output_dir="output"):
                 output_dir=os.path.join(output_dir, "clean_chunks"),
                 chunk_duration_minutes=5,
                 overlap_threshold=0.3,
+                vad_threshold=0.20,  # Increased from default 0.05 to filter music
                 huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
             )
 
@@ -785,6 +791,9 @@ def run_stage7_only(voice_samples_dir, output_dir="stage7_output"):
     try:
         processor = OverlapDetector(
             output_dir=output_dir,
+            chunk_duration_minutes=5,
+            overlap_threshold=0.3,
+            vad_threshold=0.20,  # Increased from default 0.05 to filter music
             huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
         )
         processed_results = processor.process_audio_directory(voice_samples_dir)
