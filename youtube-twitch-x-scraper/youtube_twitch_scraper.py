@@ -16,6 +16,7 @@ from enhanced_matching import EnhancedMatcher
 from crawl4ai import AsyncWebCrawler
 from bs4 import BeautifulSoup
 import requests
+import config
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -713,9 +714,9 @@ class YouTubeTwitchScraper:
 
 async def main():
     """Main async function"""
-    data_file = "data/3_snapshot_s_mepo7m7c1bhrdvfkc6_external_links(without_YT_twitch).csv"
-    proxy_file = "proxy/Free_Proxy_List.csv"
-    output_file = "youtube_twitch_results_enhanced.csv"
+    data_file = config.DATA_FILE
+    proxy_file = config.PROXY_FILE
+    output_file = config.OUTPUT_FILE
     
     # Get worker count from user
     while True:
@@ -729,6 +730,8 @@ async def main():
             print("Please enter a valid number.")
     
     logger.info(f"Starting YouTube/Twitch scraper with {worker_count} parallel workers...")
+    logger.info(f"Input file: {data_file}")
+    logger.info(f"Output file: {output_file}")
     scraper = YouTubeTwitchScraper(data_file, proxy_file, output_file, worker_count)
     await scraper.process_users()
 

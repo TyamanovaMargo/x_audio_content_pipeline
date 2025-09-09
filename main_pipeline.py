@@ -522,13 +522,25 @@ def run_stage3_5_only(links_file):
         print(f"❌ Links file not found: {links_file}")
         return None
 
+    # Extract snapshot ID from filename
+    import re
+    filename = os.path.basename(links_file)
+    match = re.search(r'3_snapshot_(.+)_external_links\.csv', filename)
+    if not match:
+        print(f"❌ Could not extract snapshot ID from filename: {filename}")
+        print("📝 Expected format: 3_snapshot_SNAPSHOT_ID_external_links.csv")
+        return None
+    
+    snapshot_id = match.group(1)
+    print(f"🆔 Extracted snapshot ID: {snapshot_id}")
+
     df = pd.read_csv(links_file)
     links = df.to_dict('records')
 
     print(f"📥 Loaded {len(links)} links from: {links_file}")
 
     runner = Step3_5_YouTubeTwitchRunner("output")
-    enhanced_file = runner.run_scraper_for_snapshot(links)
+    enhanced_file = runner.run_scraper_for_snapshot(snapshot_id)  # Pass snapshot_id, not links
 
     if enhanced_file:
         print(f"✅ Stage 3.5 completed: {enhanced_file}")
