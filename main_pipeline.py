@@ -12,7 +12,7 @@ from step3_5_youtube_twitch_runner import Step3_5_YouTubeTwitchRunner
 from step4_audio_filter import AudioContentFilter
 from step5_audio_detector import AudioContentDetector
 from step6_voice_sample_extractor import AudioDownloader  # Using your existing implementation
-from step7_overlap_detector import Step7DiarizationProcessor
+from step7_overlap_detector import OverlapDetector
 from snapshot_manager import SnapshotManager
 
 
@@ -301,7 +301,7 @@ def main(input_file, force_recheck=False):
         print("🔄 Processing clean WAV chunks with advanced diarization-first approach")
 
         try:
-            processor = Step7DiarizationProcessor(config_path="config.json")
+            processor = OverlapDetector(config_path="config.json")
             clean_audio_dir = overlap_detector.output_dir
             wav_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.wav')]
             print(f"📁 Processing {len(wav_files)} WAV files from: {clean_audio_dir}")
@@ -510,6 +510,34 @@ def run_stage3_only(snapshot_id):
     return links_file
 
 
+def run_stage3_5_only(links_file):
+    """Run only Stage 3.5: YouTube & Twitch Channel Discovery"""
+    print("🔍 STAGE 3.5 ONLY: YouTube & Twitch Channel Discovery")
+    print("=" * 50)
+
+    if not os.path.exists(links_file):
+        print(f"❌ Links file not found: {links_file}")
+        return None
+
+    df = pd.read_csv(links_file)
+    links = df.to_dict('records')
+
+    print(f"📥 Loaded {len(links)} links from: {links_file}")
+
+    runner = Step3_5_YouTubeTwitchRunner("output")
+    enhanced_file = runner.run_scraper_for_snapshot(links)
+
+    if enhanced_file:
+        print(f"✅ Stage 3.5 completed: {enhanced_file}")
+        print(f"📁 Enhanced links file: {enhanced_file}")
+        print(f"💡 Next: Run Stage 4 with --stage4-only {enhanced_file}")
+    else:
+        print("⚠️ Stage 3.5 failed, using original external links")
+        print(f"💡 Next: Run Stage 4 with --stage4-only {links_file}")
+
+    return enhanced_file
+
+
 def run_stage4_only(links_file):
     """Run only Stage 4: YouTube, Twitch & TikTok Audio Platform Filtering"""
     print("🎯 STAGE 4 ONLY: YouTube, Twitch & TikTok Audio Platform Filtering")
@@ -656,7 +684,6 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
         print(f"❌ Error running Stage 6: {e}")
 
 
-
 def run_stage6_5_only(input_path, output_dir="output"):
     """Run only Stage 6.5: Audio Chunking and Overlap Detection"""
     print("🔍 STAGE 6.5 ONLY: Audio Chunking and Overlap Detection")
@@ -750,7 +777,7 @@ def run_stage7_only(clean_audio_dir, output_dir="stage7_output"):
         print("🔄 MP3 files will be converted to WAV for processing")
 
     try:
-        processor = Step7DiarizationProcessor(config_path="config.json")
+        processor = OverlapDetector(config_path="config.json")
         processed_results = processor.process_folder(clean_audio_dir)
 
         if processed_results:
@@ -785,6 +812,7 @@ INDIVIDUAL STAGES:
 --stage1-only FILE Stage 1: Account Validation
 --stage2-only FILE Stage 2: Bright Data Trigger
 --stage3-only SNAPSHOT Stage 3: Data Download
+--stage3_5-only FILE Stage 3.5: YouTube/Twitch Channel Discovery
 --stage4-only FILE Stage 4: YouTube/Twitch Filter
 --stage5-only FILE Stage 5: Audio Detection (FINAL VOICE DECISION)
 --stage6-only FILE Stage 6: Voice Sample Extraction
@@ -812,6 +840,7 @@ if __name__ == "__main__":
     parser.add_argument("--stage1-only", help="Run only Stage 1 - Account validation")
     parser.add_argument("--stage2-only", help="Run only Stage 2 - Bright Data trigger")
     parser.add_argument("--stage3-only", help="Run only Stage 3 - Data download")
+    parser.add_argument("--stage3_5-only", help="Run only Stage 3.5 - YouTube/Twitch channel discovery")
     parser.add_argument("--stage4-only", help="Run only Stage 4 - Platform filtering")
     parser.add_argument("--stage5-only", help="Run only Stage 5 - Audio detection")
     parser.add_argument("--stage6-only", help="Run only Stage 6 - Voice sample extraction (MP3)")
@@ -848,6 +877,13 @@ if __name__ == "__main__":
 
     if args.stage3_only:
         run_stage3_only(args.stage3_only)
+        sys.exit(0)
+
+    if args.stage3_5_only:
+        if not os.path.exists(args.stage3_5_only):
+            print(f"❌ Links file not found: {args.stage3_5_only}")
+            sys.exit(1)
+        run_stage3_5_only(args.stage3_5_only)
         sys.exit(0)
 
     if args.stage4_only:
