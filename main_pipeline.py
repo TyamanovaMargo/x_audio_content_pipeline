@@ -9,7 +9,7 @@ from step2_bright_data_trigger import BrightDataTrigger
 from step3_bright_data_download import BrightDataDownloader
 from step3_5_youtube_twitch_runner import Step3_5_YouTubeTwitchRunner
 from step4_audio_filter import AudioContentFilter
-from step5_audio_detector import AudioContentDetector
+from step5_audio_detector import EnhancedVoiceDetector as AudioContentDetector
 from step6_voice_sample_extractor import AudioDownloader, save_results
 from step7_overlap_detector import PyannoteWhisperProcessor # Updated import
 from snapshot_manager import SnapshotManager
@@ -136,10 +136,8 @@ def main(input_file, force_recheck=False):
     # Stage 5: YouTube, Twitch & TikTok Audio Content Detection
     print("\n🎵 STAGE 5: YouTube, Twitch & TikTok Audio Content Detection")
     print("-" * 60)
-    audio_detector = AudioContentDetector(
-        timeout=15,
-        huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
-    )
+    audio_detector = AudioContentDetector("config.json")
+
     
     audio_detected_links = audio_detector.detect_audio_content(audio_links)
     if not audio_detected_links:
@@ -791,10 +789,8 @@ def run_stage5_only(audio_links_file):
     print(f"📥 Loaded {len(audio_links)} audio links from: {audio_links_file}")
     
     cfg = Config()
-    audio_detector = AudioContentDetector(
-        timeout=15,
-        huggingface_token=getattr(cfg, 'HUGGINGFACE_TOKEN', None)
-    )
+    audio_detector = AudioContentDetector("config.json")
+
     
     audio_detected_links = audio_detector.detect_audio_content(audio_links)
     if not audio_detected_links:

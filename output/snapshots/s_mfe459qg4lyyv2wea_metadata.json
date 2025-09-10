@@ -1,0 +1,16 @@
+{
+  "snapshot_id": "s_mfe459qg4lyyv2wea",
+  "created_at": "2025-09-10T18:06:47.171349",
+  "status": "pending",
+  "total_accounts": 4,
+  "accounts_file": "output/snapshots/s_mfe459qg4lyyv2wea_accounts.csv",
+  "usernames": [
+    "sekirodubi",
+    "CDawgVA",
+    "shelbylcole",
+    "FabuPonah"
+  ],
+  "account_stats": {
+    "exists": 4
+  }
+}
