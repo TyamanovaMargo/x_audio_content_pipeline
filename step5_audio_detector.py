@@ -294,7 +294,9 @@ class EnhancedVoiceDetector:
         processing_errors = 0
         
         for i, link_data in enumerate(audio_links, 1):
+            # Try 'url' first, fallback to 'platform_url' if url fails
             url = link_data.get('url', '')
+            platform_url = link_data.get('platform_url', '')
             platform = link_data.get('platform_type', 'unknown')
             username = link_data.get('username', 'unknown')
             
@@ -305,10 +307,25 @@ class EnhancedVoiceDetector:
                 username = 'unknown'
             
             print(f"\n🎤 [{i}/{len(audio_links)}] {platform.upper()} - @{username}")
-            print(f"🔗 URL: {url[:80]}...")
+            print(f"🔗 Primary URL: {url[:80]}...")
+            if platform_url and platform_url != url:
+                print(f"🔗 Platform URL: {platform_url[:80]}...")
             
-            # Enhanced URL validation
+            # Enhanced URL validation with fallback logic
             url_validation = self._validate_processable_url(url, platform)
+            
+            # If primary URL fails, try platform_url as fallback
+            if not url_validation['valid'] and platform_url and platform_url != url:
+                print(f"❌ Primary URL failed: {url_validation['reason']}")
+                print(f"🔄 Trying platform_url fallback...")
+                url = platform_url  # Switch to platform_url
+                url_validation = self._validate_processable_url(url, platform)
+                
+                if url_validation['valid']:
+                    print(f"✅ Platform URL is valid, using fallback")
+                else:
+                    print(f"❌ Platform URL also failed: {url_validation['reason']}")
+            
             if not url_validation['valid']:
                 reason = url_validation['reason']
                 print(f"❌ Skipped: {reason}")
@@ -980,7 +997,7 @@ if __name__ == "__main__":
     import pandas as pd
     
     # Load your audio links
-    df = pd.read_csv("output/4_snapshot_s_mfe459qg4lyyv2wea_external_links_audio_links.csv")
+    df = pd.read_csv("output/4_audio_links.csv")
     audio_links = df.to_dict('records')
     
     print(f"📥 Loaded {len(audio_links)} audio links from CSV")

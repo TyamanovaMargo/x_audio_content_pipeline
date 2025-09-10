@@ -14,19 +14,19 @@ class Step3_5_YouTubeTwitchRunner:
         self.output_dir = output_dir
         self.scraper_dir = os.path.join(os.path.dirname(__file__), "youtube-twitch-x-scraper")
         
-    def run_scraper_for_snapshot(self, snapshot_id):
-        """Run the YouTube-Twitch scraper for a specific snapshot"""
+    def run_scraper_for_snapshot(self, snapshot_id=None):
+        """Run the YouTube-Twitch scraper - uses permanent CSV file"""
         
-        # 1. Find the external links CSV from step 3
-        external_links_file = os.path.join(self.output_dir, f"3_snapshot_{snapshot_id}_external_links.csv")
+        # 1. Use the permanent external links CSV (no dynamic snapshot logic)
+        external_links_file = os.path.join(self.output_dir, "3_snapshot_s_mepo7m7c1bhrdvfkc6_external_links.csv")
         
         if not os.path.exists(external_links_file):
             print(f"❌ External links file not found: {external_links_file}")
             return None
             
-        print(f"📂 Found external links file: {external_links_file}")
+        print(f"📂 Using permanent external links file: {external_links_file}")
         
-        # 2. Update the scraper's config with the actual file path
+        # 2. Config file paths (no need to update, using permanent file)
         config_file = os.path.join(self.scraper_dir, "config.py")
         scraper_file = os.path.join(self.scraper_dir, "youtube_twitch_scraper.py")
         
@@ -105,17 +105,17 @@ class Step3_5_YouTubeTwitchRunner:
 
 
 def main():
-    """Standalone execution"""
+    """Standalone execution - snapshot-id optional since using permanent file"""
     import argparse
     
     parser = argparse.ArgumentParser(description="Step 3.5: Run YouTube-Twitch scraper")
-    parser.add_argument("--snapshot-id", required=True, help="Snapshot ID to process")
+    parser.add_argument("--snapshot-id", help="Snapshot ID (ignored, using permanent file)")
     parser.add_argument("--output-dir", default="output/", help="Output directory")
     
     args = parser.parse_args()
     
     runner = Step3_5_YouTubeTwitchRunner(args.output_dir)
-    result = runner.run_scraper_for_snapshot(args.snapshot_id)
+    result = runner.run_scraper_for_snapshot(args.snapshot_id)  # Passed but ignored
     
     if result:
         print(f"✅ Step 3.5 completed: {result}")
