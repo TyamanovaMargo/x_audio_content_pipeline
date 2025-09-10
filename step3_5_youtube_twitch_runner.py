@@ -45,32 +45,58 @@ class Step3_5_YouTubeTwitchRunner:
         
         print(f"📝 Updated scraper config for snapshot {snapshot_id}")
         
+        # 3.5. Verify config update was successful
+        with open(config_file, 'r') as f:
+            updated_content = f.read()
+        
+        if f"3_snapshot_{snapshot_id}_external_links.csv" in updated_content:
+            print(f"✅ Config successfully updated with snapshot {snapshot_id}")
+        else:
+            print(f"⚠️ Warning: Config update may have failed")
+        
         # 4. Run the scraper
         print(f"🚀 Running YouTube-Twitch scraper...")
+        print(f"📂 Input file: {external_links_file}")
+        print(f"📂 Expected output: {os.path.join(self.output_dir, 'youtube_twitch_results_enhanced.csv')}")
         
         try:
             # Change to scraper directory and run
             original_cwd = os.getcwd()
             os.chdir(self.scraper_dir)
             
-            # Run the scraper with automatic input (1 worker)
+            # Run the scraper with automatic input (1 worker) - NO CAPTURE, NO TIMEOUT
             result = subprocess.run([
                 sys.executable, "youtube_twitch_scraper.py"
-            ], input="1\n", text=True, capture_output=True)
+            ], input="1\n", text=True)  # Let it run and show all logs
             
             os.chdir(original_cwd)
             
             if result.returncode == 0:
                 output_file = os.path.join(self.output_dir, "youtube_twitch_results_enhanced.csv")
                 if os.path.exists(output_file):
-                    print(f"✅ Scraper completed successfully!")
+                    print("✅ Scraper completed successfully!")
                     print(f"📊 Results saved to: {output_file}")
+                    
+                    # Show basic stats about the results
+                    try:
+                        df = pd.read_csv(output_file)
+                        print(f"📈 Enhanced {len(df)} records with YouTube/Twitch data")
+                    except Exception as e:
+                        print(f"⚠️ Could not read results file: {e}")
+                    
                     return output_file
                 else:
-                    print(f"❌ Scraper completed but no output file found")
+                    print("❌ Scraper completed but no output file found")
+                    print(f"📂 Expected output file: {output_file}")
+                    if result.stdout:
+                        print(f"📝 Stdout: {result.stdout}")
                     return None
             else:
-                print(f"❌ Scraper failed with error: {result.stderr}")
+                print(f"❌ Scraper failed with return code: {result.returncode}")
+                if result.stderr:
+                    print(f"📝 Error output: {result.stderr}")
+                if result.stdout:
+                    print(f"📝 Standard output: {result.stdout}")
                 return None
                 
         except Exception as e:

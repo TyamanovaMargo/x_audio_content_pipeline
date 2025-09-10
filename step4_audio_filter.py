@@ -3,6 +3,7 @@ from typing import List, Dict
 import subprocess
 import json
 import re
+import pandas as pd
 
 class AudioContentFilter:
     def __init__(self, min_duration=30, max_duration=3600):
@@ -39,16 +40,16 @@ class AudioContentFilter:
             urls_to_check = []
             
             # Collect all URLs to check from different columns
-            if 'url' in link and link['url']:
+            if 'url' in link and link['url'] and not pd.isna(link['url']):
                 urls_to_check.append(('original', link['url']))
-            if 'youtube_url' in link and link['youtube_url']:
+            if 'youtube_url' in link and link['youtube_url'] and not pd.isna(link['youtube_url']):
                 urls_to_check.append(('youtube', link['youtube_url']))
-            if 'twitch_url' in link and link['twitch_url']:
+            if 'twitch_url' in link and link['twitch_url'] and not pd.isna(link['twitch_url']):
                 urls_to_check.append(('twitch', link['twitch_url']))
                 
             found_platform = None
             
-            # Process each URL
+            # Process each URL - CHECK ALL URLs, don't break after first match
             for url_source, url in urls_to_check:
                 domain = urlparse(url).netloc.lower()
                 
@@ -97,10 +98,7 @@ class AudioContentFilter:
                                 platform_stats[plat_name] += 1
                                 found_platform = plat_name
                         
-                        break
-                
-                if found_platform:
-                    break
+                        break  # Only break from platform loop, continue with next URL
             
             if not found_platform:
                 platform_stats['filtered_out'] += 1
