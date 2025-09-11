@@ -5,12 +5,15 @@ import os
 import time
 import tempfile
 import logging
-import random
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
 from pathlib import Path
+import multiprocessing
+import concurrent.futures
+import hashlib
+from dataclasses import dataclass
 
 # Audio processing libraries with fallbacks
 try:
@@ -24,7 +27,7 @@ except ImportError:
 try:
     import librosa
     LIBROSA_AVAILABLE = True
-    print("✅ librosa imported successfully")
+    print("✅ librosa imported successfully") 
 except ImportError:
     LIBROSA_AVAILABLE = False
     print("❌ librosa not available")
@@ -39,112 +42,382 @@ except ImportError:
     PYANNOTE_AVAILABLE = False
     print("❌ PyAnnote not available")
 
-class EnhancedVoiceDetector:
-    """Enhanced Voice Detector with Latest Video Fetching"""
+try:
+    from silero_vad import load_silero_vad, get_speech_timestamps
+    SILERO_AVAILABLE = True
+    print("✅ Silero VAD imported successfully")
+except ImportError:
+    SILERO_AVAILABLE = False
+    print("❌ Silero VAD not available")
 
+
+class SmartAudioExtractor:
+    """Smart audio extraction from middle portions of videos"""
+    
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        
+    def extract_smart_audio_sample(self, url: str, sample_duration: int = 30) -> Optional[str]:
+        """
+        Extract audio sample from the most representative part of the video
+        
+        Args:
+            url: Video URL
+            sample_duration: Duration of audio sample in seconds
+            
+        Returns:
+            Path to extracted audio file or None
+        """
+        if not YT_DLP_AVAILABLE:
+            self.logger.warning("yt-dlp not available for audio extraction")
+            return None
+            
+        try:
+            # First, get video metadata to determine optimal extraction points
+            video_duration = self._get_video_duration(url)
+            extraction_points = self._calculate_extraction_points(video_duration, sample_duration)
+            
+            self.logger.info(f"Video duration: {video_duration}s, extraction points: {extraction_points}")
+            
+            # Try extracting from different points until successful
+            for i, (offset, duration) in enumerate(extraction_points):
+                self.logger.info(f"Trying extraction point {i+1}/{len(extraction_points)}: {offset}s-{offset+duration}s")
+                
+                audio_path = self._extract_audio_segment(url, offset, duration)
+                if audio_path and os.path.exists(audio_path):
+                    # Verify the extracted audio is valid
+                    if self._validate_audio_file(audio_path):
+                        self.logger.info(f"Successfully extracted audio from {offset}s-{offset+duration}s")
+                        return audio_path
+                    else:
+                        # Clean up invalid file
+                        try:
+                            os.remove(audio_path)
+                        except:
+                            pass
+                        
+            self.logger.warning("All extraction attempts failed")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Smart audio extraction failed for {url}: {e}")
+            return None
+    
+    def _get_video_duration(self, url: str) -> int:
+        """Get video duration in seconds"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'socket_timeout': 10,
+                'retries': 1,
+                'ignore_errors': True
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                duration = info.get('duration', 0)
+                return int(duration) if duration else 300  # Default to 5 minutes if unknown
+                
+        except Exception as e:
+            self.logger.warning(f"Could not get video duration: {e}")
+            return 300  # Default fallback
+    
+    def _calculate_extraction_points(self, video_duration: int, sample_duration: int = 20) -> List[Tuple[int, int]]:
+        """Simplified extraction points - avoid complex strategies that can hang"""
+        if video_duration <= sample_duration:
+            return [(0, video_duration)]
+
+        # ✅ ПРОСТАЯ стратегия: только середина видео
+        middle_point = video_duration // 2
+        offset = max(0, middle_point - sample_duration // 2)
+
+        # ✅ Fallback: начало после пропуска интро
+        fallback_offset = min(30, video_duration // 4)
+
+        return [
+            (offset, sample_duration),           # Середина
+            (fallback_offset, sample_duration)   # Fallback
+        ]
+
+    
+    def _extract_audio_segment(self, url: str, offset: int, duration: int) -> Optional[str]:
+        """Extract specific audio segment"""
+        try:
+            # Create temporary file
+            temp_dir = tempfile.gettempdir()
+            file_hash = hashlib.md5(f"{url}_{offset}_{duration}".encode()).hexdigest()[:10]
+            output_path = os.path.join(temp_dir, f"audio_segment_{file_hash}.wav")
+            
+            # Remove existing file
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            
+            # yt-dlp options for segment extraction
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': output_path.replace('.wav', '.%(ext)s'),
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'wav',
+                    'preferredquality': '192',
+                }],
+                'quiet': True,
+                'no_warnings': True,
+                'socket_timeout': 15,
+                'retries': 1,
+                # Extract specific segment using ffmpeg
+                'external_downloader_args': {
+                    'ffmpeg_i': ['-ss', str(offset), '-t', str(duration)]
+                }
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+                
+            # Check if file was created (might have different extension)
+            if os.path.exists(output_path):
+                return output_path
+            else:
+                # Try alternative extensions
+                for ext in ['.wav', '.m4a', '.webm', '.mp3', '.ogg']:
+                    alt_path = output_path.replace('.wav', ext)
+                    if os.path.exists(alt_path):
+                        return alt_path
+                        
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Audio segment extraction failed: {e}")
+            return None
+    
+    def _validate_audio_file(self, audio_path: str) -> bool:
+        """Validate that extracted audio file is usable"""
+        try:
+            if not os.path.exists(audio_path):
+                return False
+                
+            # Check file size (should be at least 100KB for a meaningful sample)
+            file_size = os.path.getsize(audio_path)
+            if file_size < 100000:  # 100KB
+                self.logger.warning(f"Audio file too small: {file_size} bytes")
+                return False
+            
+            # Try to load with librosa if available
+            if LIBROSA_AVAILABLE:
+                try:
+                    y, sr = librosa.load(audio_path, duration=5)  # Load first 5 seconds as test
+                    if len(y) < sr:  # Less than 1 second of audio
+                        self.logger.warning("Audio file contains insufficient audio data")
+                        return False
+                except Exception as e:
+                    self.logger.warning(f"Audio file validation failed: {e}")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Audio validation error: {e}")
+            return False
+
+
+def extract_metadata_isolated(url, platform, result_queue, voice_keywords, music_keywords):
+    """Isolated metadata extraction in separate process"""
+    try:
+        import yt_dlp
+        
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 3,
+            'retries': 0,
+            'ignore_errors': True
+        }
+        
+        if platform == 'tiktok':
+            ydl_opts['extractor_args'] = {
+                'tiktok': {'api_hostname': 'api22-normal-c-useast2a.tiktokv.com'}
+            }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        
+        # Analyze metadata
+        title = info.get('title', '').lower()
+        description = info.get('description', '').lower()
+        text_content = f"{title} {description}"
+        
+        voice_score = 0
+        music_score = 0
+        indicators = []
+        
+        # Score voice indicators
+        for keyword in voice_keywords['strong_voice']:
+            count = text_content.count(keyword)
+            if count > 0:
+                voice_score += count * 3
+                indicators.append(f'voice_{keyword}({count})')
+        
+        for keyword in voice_keywords['likely_voice']:
+            count = text_content.count(keyword)
+            if count > 0:
+                voice_score += count * 2
+                indicators.append(f'voice_{keyword}({count})')
+        
+        for keyword in music_keywords['strong_music']:
+            count = text_content.count(keyword)
+            if count > 0:
+                music_score += count * 3
+                indicators.append(f'music_{keyword}({count})')
+        
+        total_score = voice_score + music_score
+        score = voice_score / total_score if total_score > 0 else 0.5
+        
+        result_queue.put({
+            'score': score,
+            'voice_score': voice_score,
+            'music_score': music_score,
+            'indicators': indicators,
+            'method': 'isolated_metadata'
+        })
+        
+    except Exception as e:
+        fallback_score = 0.7 if platform == 'tiktok' else 0.5
+        result_queue.put({
+            'score': fallback_score,
+            'indicators': ['process_fallback'],
+            'method': 'process_failed'
+        })
+
+
+class SileroVADAnalyzer:
+    """Voice Activity Detection using Silero VAD"""
+    
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.vad_model = None
+        
+        if SILERO_AVAILABLE:
+            try:
+                self.vad_model = load_silero_vad()
+                self.logger.info("Silero VAD model loaded successfully")
+            except Exception as e:
+                self.logger.error(f"Failed to load Silero VAD: {e}")
+    
+    def analyze(self, audio_path: str) -> Dict:
+        """Analyze audio file for voice activity"""
+        if not self.vad_model or not SILERO_AVAILABLE:
+            return {
+                'voice_detected': False,
+                'confidence': 'low',
+                'voice_probability': 0.5,
+                'method': 'silero_unavailable',
+                'indicators': ['model_not_loaded']
+            }
+        
+        try:
+            # Load audio
+            wav, sr = torchaudio.load(audio_path)
+            
+            # Ensure mono and correct sample rate
+            if wav.shape[0] > 1:
+                wav = wav.mean(dim=0, keepdim=True)
+            if sr != 16000:
+                wav = torchaudio.functional.resample(wav, sr, 16000)
+                sr = 16000
+            
+            # Get speech timestamps
+            speech_timestamps = get_speech_timestamps(wav.squeeze(), self.vad_model, sampling_rate=sr)
+            
+            # Calculate speech ratio
+            total_speech = sum((end - start) / sr for start, end in speech_timestamps)
+            total_duration = wav.shape[1] / sr
+            speech_ratio = total_speech / total_duration if total_duration > 0 else 0
+            
+            # Determine voice presence
+            voice_detected = speech_ratio > 0.2  # 20% speech threshold
+            confidence = 'high' if speech_ratio > 0.5 else 'medium' if speech_ratio > 0.2 else 'low'
+            
+            return {
+                'voice_detected': voice_detected,
+                'confidence': confidence,
+                'voice_probability': speech_ratio,
+                'method': 'silero_vad',
+                'indicators': [f'speech_segments:{len(speech_timestamps)}', f'speech_ratio:{speech_ratio:.3f}'],
+                'metadata': {'speech_ratio': speech_ratio, 'segments': len(speech_timestamps)}
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Silero VAD analysis failed: {e}")
+            return {
+                'voice_detected': False,
+                'confidence': 'low',
+                'voice_probability': 0.5,
+                'method': 'silero_error',
+                'indicators': ['analysis_failed']
+            }
+
+
+class EnhancedVoiceDetector:
+    """Enhanced Voice Detector with Smart Middle-Segment Audio Analysis"""
+    
     def __init__(self, config_path: str = "config.json"):
         """Initialize detector with configuration from JSON file"""
-        print("🔧 Initializing Enhanced Voice Detector with Latest Video Fetching...")
+        print("🔧 Initializing Enhanced Voice Detector with Smart Audio Analysis...")
         self.config = self._load_config(config_path)
         self._setup_logging()
         self._initialize_detector()
         self._setup_voice_keywords()
-        self._test_environment()
-        self._initialize_models()
-
+        self._initialize_components()
+    
     def _load_config(self, config_path: str) -> Dict:
-        """Load configuration from JSON file with detailed logging"""
-        print(f"📋 Loading configuration from: {config_path}")
+        """Load configuration from JSON file"""
         try:
             with open(config_path, 'r') as f:
                 config = json.load(f)
             print("✅ Configuration loaded successfully")
-            
-            # Validate token
-            token = config.get('huggingface_token')
-            if token and len(token) > 10:
-                print(f"🔑 HuggingFace token present: True")
-                print(f"🔑 Token format looks valid (starts with: {token[:10]}...)")
-            elif token == "here":
-                print("⚠️ Warning: Token placeholder 'here' detected - please set actual token")
-            else:
-                print("⚠️ Warning: No valid HuggingFace token found")
-            
             return config
         except FileNotFoundError:
             print(f"❌ Config file not found: {config_path}")
             return self._get_default_config()
-        except json.JSONDecodeError as e:
-            print(f"❌ Invalid JSON in config file: {e}")
-            return self._get_default_config()
         except Exception as e:
-            print(f"❌ Unexpected error loading config: {e}")
+            print(f"❌ Error loading config: {e}")
             return self._get_default_config()
-
+    
     def _get_default_config(self) -> Dict:
         """Return default configuration"""
         return {
-            "huggingface_token": None,
-            "output_dir": "processed_audio",
-            "chunking": {"max_duration_minutes": 60},
-            "processing": {"min_voice_duration": 0.5},
-            "pyannote": {
-                "diarization_model": "pyannote/speaker-diarization-3.1",
-                "vad_model": "pyannote/voice-activity-detection"
-            }
+            "audio_analysis_enabled": True,
+            "audio_sample_duration": 30,
+            "voice_threshold": 0.6,
+            "smart_extraction": True,
+            "extraction_strategies": ["middle_third", "multiple_points", "skip_intro"]
         }
-
+    
     def _setup_logging(self):
         """Setup logging configuration"""
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
-
+    
     def _initialize_detector(self):
-        """Initialize detector parameters from config"""
+        """Initialize detector parameters"""
         print("⚙️ Initializing detector parameters...")
-        self.timeout = 15
         
-        # Extract timing parameters from config
-        processing_config = self.config.get('processing', {})
-        chunking_config = self.config.get('chunking', {})
-        
-        self.min_duration = max(30, int(processing_config.get('min_voice_duration', 0.5) * 60))
-        self.max_duration = chunking_config.get('max_duration_minutes', 60) * 60
-        
-        print(f"⏰ Duration filter: {self.min_duration}s - {self.max_duration}s")
-        
-        # Setup HTTP session
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         
-        # Output directory
-        self.output_dir = Path(self.config.get('output_dir', 'processed_audio'))
-        self.output_dir.mkdir(exist_ok=True)
-        print(f"📁 Output directory: {self.output_dir}")
-
-    def _test_environment(self):
-        """Test PyAnnote environment setup"""
-        print("\n🔍 Testing PyAnnote environment...")
-        if not PYANNOTE_AVAILABLE:
-            print("❌ PyAnnote not available - models will not be loaded")
-            return False
+        self.audio_analysis_enabled = self.config.get('audio_analysis_enabled', True)
+        self.audio_sample_duration = self.config.get('audio_sample_duration', 30)
+        self.voice_threshold = self.config.get('voice_threshold', 0.6)
+        self.smart_extraction = self.config.get('smart_extraction', True)
         
-        try:
-            import torch
-            print(f"✅ PyTorch version: {torch.__version__}")
-            import torchaudio
-            print(f"✅ TorchAudio version: {torchaudio.__version__}")
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"🖥️ Available device: {device}")
-            return True
-        except Exception as e:
-            print(f"❌ Environment test failed: {e}")
-            return False
-
+        print(f"🎵 Smart audio extraction: {'✅ Enabled' if self.smart_extraction else '❌ Disabled'}")
+        print(f"⏱️ Sample duration: {self.audio_sample_duration}s")
+    
     def _setup_voice_keywords(self):
-        """Setup keyword dictionaries for content classification"""
+        """Setup keyword dictionaries"""
         self.voice_keywords = {
             'strong_voice': [
                 'podcast', 'interview', 'talk', 'discussion', 'conversation',
@@ -154,7 +427,7 @@ class EnhancedVoiceDetector:
                 'debate', 'q&a', 'live stream', 'chat', 'talking', 'speaking'
             ],
             'likely_voice': [
-                'gaming', 'gameplay', 'let\'s play', 'walkthrough', 'guide',
+                'gaming', 'gameplay', "let's play", 'walkthrough', 'guide',
                 'news', 'update', 'announcement', 'behind the scenes',
                 'unboxing', 'haul', 'cooking', 'diy', 'how to', 'tips',
                 'advice', 'thoughts', 'opinion', 'rant', 'story'
@@ -169,726 +442,66 @@ class EnhancedVoiceDetector:
                 'mv', 'music video', 'official video', 'audio only', 'lyrics'
             ]
         }
-
-    def _initialize_models(self):
-        """Initialize PyAnnote models with comprehensive debugging"""
-        print("\n🤖 Initializing PyAnnote models...")
-        self.vad_pipeline = None
-        self.diarization_pipeline = None
+    
+    def _initialize_components(self):
+        """Initialize audio analysis components"""
+        print("🎛️ Initializing components...")
         
-        if not PYANNOTE_AVAILABLE:
-            print("❌ PyAnnote not available - skipping model initialization")
-            return
+        # Smart audio extractor
+        self.audio_extractor = SmartAudioExtractor(self.logger)
         
-        huggingface_token = self.config.get('huggingface_token')
-        if not huggingface_token:
-            print("❌ No HuggingFace token found in config")
-            return
+        # Audio analyzers
+        self.audio_analyzers = []
+        if SILERO_AVAILABLE:
+            self.audio_analyzers.append(SileroVADAnalyzer(self.logger))
+            print("✅ Silero VAD analyzer enabled")
         
-        if huggingface_token == "here":
-            print("❌ HuggingFace token is placeholder 'here' - please set actual token")
-            return
-        
-        print(f"🔑 Using HuggingFace token: {huggingface_token[:10]}...")
-        
-        try:
-            pyannote_config = self.config.get('pyannote', {})
-            
-            # Test token first
-            self._test_huggingface_access(huggingface_token)
-            
-            # Load VAD model
-            vad_model_name = pyannote_config.get('vad_model', 'pyannote/voice-activity-detection')
-            print(f"📥 Loading VAD model: {vad_model_name}")
-            from pyannote.audio import Pipeline
-            self.vad_pipeline = Pipeline.from_pretrained(
-                vad_model_name,
-                use_auth_token=huggingface_token
-            )
-            print(f"✅ VAD model loaded successfully: {vad_model_name}")
-            
-            # Load diarization model
-            diarization_model_name = pyannote_config.get('diarization_model', 'pyannote/speaker-diarization-3.1')
-            print(f"📥 Loading diarization model: {diarization_model_name}")
-            self.diarization_pipeline = Pipeline.from_pretrained(
-                diarization_model_name,
-                use_auth_token=huggingface_token
-            )
-            print(f"✅ Diarization model loaded successfully: {diarization_model_name}")
-            
-            # Move to GPU if available
-            if torch.cuda.is_available():
-                print("🚀 Moving models to GPU...")
-                try:
-                    self.vad_pipeline.to(torch.device("cuda"))
-                    self.diarization_pipeline.to(torch.device("cuda"))
-                    print("✅ Models moved to GPU successfully")
-                except Exception as e:
-                    print(f"⚠️ Could not move to GPU: {e}")
-                    
-        except Exception as e:
-            print(f"❌ Failed to load PyAnnote models: {e}")
-            # Enhanced error diagnosis
-            if "401" in str(e) or "Unauthorized" in str(e):
-                print("💡 Authentication error - please check:")
-                print(" 1. Your HuggingFace token is valid")
-                print(" 2. You've accepted model licenses:")
-                print(" - https://huggingface.co/pyannote/voice-activity-detection")
-                print(" - https://huggingface.co/pyannote/speaker-diarization-3.1")
-                print(" - https://huggingface.co/pyannote/segmentation-3.0")
-            self.vad_pipeline = None
-            self.diarization_pipeline = None
-
-    def _test_huggingface_access(self, token: str):
-        """Test HuggingFace token access"""
-        try:
-            headers = {'Authorization': f'Bearer {token}'}
-            response = requests.get(
-                'https://huggingface.co/api/whoami',
-                headers=headers,
-                timeout=10
-            )
-            if response.status_code == 200:
-                user_info = response.json()
-                print(f"✅ Token valid for user: {user_info.get('name', 'unknown')}")
-            else:
-                print(f"⚠️ Token validation returned status: {response.status_code}")
-        except Exception as e:
-            print(f"⚠️ Could not validate token: {e}")
-
-    def _fetch_latest_video_url(self, url: str, platform: str) -> str:
-        """ИСПРАВЛЕННАЯ ВЕРСИЯ с TikTok fixes"""
-        if platform not in ['youtube', 'twitch', 'tiktok']:
-            return url
-
+        print(f"🔧 Initialized {len(self.audio_analyzers)} audio analyzers")
+    
+    def _analyze_video_metadata(self, url: str, platform: str) -> Dict:
+        """Analyze video metadata with process isolation"""
         if not YT_DLP_AVAILABLE:
-            print(f"⚠️ yt-dlp not available - cannot fetch latest video for {url}")
-            return url
-
-        print(f"🔍 Fetching latest {platform} video from: {url}")
+            return {'score': 0.5, 'indicators': [], 'method': 'no_yt_dlp'}
         
-        # Обновленные конфигурации с TikTok fixes
-        configs_by_platform = {
-            'youtube': [{
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': True,
-                'skip_download': True,
-                'playlist_items': '1:5',
-                'socket_timeout': 8,
-                'ignore_errors': True,
-                'age_limit': 0,
-                'no_check_certificates': True
-            }],
-            'twitch': [{
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': True,
-                'skip_download': True,
-                'playlist_items': '1:10',
-                'socket_timeout': 10,
-                'ignore_errors': True
-            }],
-            'tiktok': [{
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': True,
-                'skip_download': True,
-                'playlist_items': '1:3',
-                'socket_timeout': 3,  # Очень короткий для TikTok
-                'ignore_errors': True,
-                'retries': 1,
-                'extractor_args': {
-                    'tiktok': {
-                        'api_hostname': 'api22-normal-c-useast2a.tiktokv.com'
-                    }
-                }
-            }]
-        }
-        
-        # Специальная обработка URL для разных платформ
-        urls_to_try = [url]
-        
-        if platform == 'twitch':
-            base_url = url.rstrip('/')
-            if not '/videos' in base_url:
-                urls_to_try = [
-                    f"{base_url}/videos",
-                    f"{base_url}/clips", 
-                    base_url
-                ]
-        elif platform == 'youtube':
-            if '/c/' in url or '/channel/' in url or '/user/' in url or '/@' in url:
-                urls_to_try.append(f"{url.rstrip('/')}/videos")
-        
-        # Пробуем все конфигурации и URL
-        for attempt, ydl_opts in enumerate(configs_by_platform[platform], 1):
-            for url_variant in urls_to_try:
-                try:
-                    print(f"  🔄 Attempt {attempt} with URL: {url_variant[:50]}...")
-                    
-                    # Строгий таймаут (особенно для TikTok)
-                    import signal
-                    def timeout_handler(signum, frame):
-                        raise TimeoutError("Fetch timeout")
-                    
-                    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-                    timeout_duration = 5 if platform == 'tiktok' else 10
-                    signal.alarm(timeout_duration)
-                    
-                    try:
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url_variant, download=False)
-                            
-                        signal.alarm(0)
-                        signal.signal(signal.SIGALRM, old_handler)
-                        
-                        # Ищем доступные видео
-                        if 'entries' in info and info['entries']:
-                            for entry in info['entries'][:5]:  # Уменьшено до 5
-                                if not entry or not entry.get('id'):
-                                    continue
-                                
-                                # Проверяем доступность
-                                if not self._is_entry_accessible(entry):
-                                    continue
-                                    
-                                # Формируем URL для каждой платформы
-                                video_url = self._build_video_url(entry, platform)
-                                if video_url and video_url != url:
-                                    print(f"🎯 Found accessible video: {video_url[:60]}...")
-                                    return video_url
-                        
-                        # Если это прямое видео
-                        if info.get('id') and 'entries' not in info:
-                            print(f"✅ URL is already a direct video")
-                            return url_variant
-                            
-                    except TimeoutError:
-                        signal.alarm(0)
-                        signal.signal(signal.SIGALRM, old_handler)
-                        print(f"  ⏰ Timeout on attempt {attempt} ({timeout_duration}s)")
-                        continue
-                        
-                except Exception as e:
-                    print(f"  ⚠️ Failed: {str(e)[:40]}...")
-                    continue
-        
-        print(f"⚠️ All methods failed, returning original URL")
-        return url
-
-
-    def _is_entry_accessible(self, entry: dict) -> bool:
-        """Проверить доступность видео"""
-        if not entry or not entry.get('id'):
-            return False
-        
-        # Исключаем проблемные видео
-        title = entry.get('title', '').lower()
-        if any(word in title for word in ['private', 'deleted', 'unavailable']):
-            return False
-        
-        # Проверяем длительность
-        duration = entry.get('duration')
-        if duration and (duration < 10 or duration > 7200):  # 10 сек - 2 часа
-            return False
-        
-        return True
-
-    def _build_video_url(self, entry: dict, platform: str) -> str:
-        """Построить URL видео для платформы"""
-        entry_id = entry.get('id')
-        webpage_url = entry.get('webpage_url')
-        
+        # Skip metadata for channels 
         if platform == 'youtube':
-            if entry_id and len(entry_id) == 11:
-                return f'https://www.youtube.com/watch?v={entry_id}'
-            elif webpage_url and '/watch?v=' in webpage_url:
-                return webpage_url
-                
-        elif platform == 'twitch':
-            if webpage_url and ('twitch.tv/videos/' in webpage_url or 'clip' in webpage_url):
-                return webpage_url
-            elif entry_id and entry_id.isdigit():
-                return f'https://www.twitch.tv/videos/{entry_id}'
-                
-        elif platform == 'tiktok':
-            if webpage_url and '/video/' in webpage_url:
-                return webpage_url
+            channel_patterns = ['/channel/', '/c/', '/user/', '/@', '/videos']
+            if any(pattern in url for pattern in channel_patterns):
+                return {'score': 0.6, 'indicators': ['channel_skipped'], 'method': 'channel_skipped'}
         
-        return ""
-
-
-    def _is_video_accessible(self, entry: dict) -> bool:
-        """Проверить, доступно ли видео (не age-restricted, не private)"""
-        if not entry:
-            return False
-        
-        # Проверяем наличие основных полей
-        if not entry.get('id'):
-            return False
-        
-        # Проверяем на ограничения
-        title = entry.get('title', '').lower()
-        description = entry.get('description', '').lower()
-        
-        # Исключаем явно проблемные видео
-        blocked_indicators = [
-            'age-restricted', 'sign in to confirm', 'private video',
-            'unavailable', 'removed', 'deleted', 'blocked'
-        ]
-        
-        content = f"{title} {description}"
-        if any(indicator in content for indicator in blocked_indicators):
-            return False
-        
-        # Проверяем длительность (должна быть больше 0)
-        duration = entry.get('duration', 0)
-        if duration and duration > 0:
-            return True
-        
-        # Если нет duration, но есть title - вероятно доступно
-        return bool(entry.get('title'))
-
-
-
-    def detect_audio_content(self, audio_links: List[Dict]) -> List[Dict]:
-        """Main function for enhanced voice content detection with latest video fetching"""
-        if not audio_links:
-            print("🔍 No audio links to detect")
-            return []
-
-        print(f"\n🎤 Starting ENHANCED VOICE detection for {len(audio_links)} links...")
-        print(f"🎯 NEW FEATURE: Automatically fetching latest videos from channels!")
-        print(f"⏰ Duration filter: {self.min_duration}s - {self.max_duration}s")
-        print(f"🎯 Strategy: Multi-level voice classification")
-        print(f"📥 Available tools:")
-        print(f" • yt-dlp: {'✅' if YT_DLP_AVAILABLE else '❌'}")
-        print(f" • librosa: {'✅' if LIBROSA_AVAILABLE else '❌'}")
-        print(f" • pyannote VAD: {'✅' if self.vad_pipeline else '❌'}")
-        print(f" • pyannote diarization: {'✅' if self.diarization_pipeline else '❌'}")
-
-        # Step 1: Replace channel URLs with latest video URLs
-        print(f"\n🔄 Step 1: Converting channel URLs to latest video URLs...")
-        for i, link_data in enumerate(audio_links, 1):
-            original_url = link_data.get('url', '')
-            platform = link_data.get('platform_type', 'unknown')
-            username = link_data.get('username', 'unknown')
-            
-            if platform in ['youtube', 'twitch', 'tiktok']:
-                print(f"\n🔍 [{i}/{len(audio_links)}] Checking {platform.upper()} - @{username}")
-                latest_url = self._fetch_latest_video_url(original_url, platform)
-                
-                # Store both URLs
-                link_data['original_channel_url'] = original_url
-                link_data['url'] = latest_url
-                link_data['url_converted'] = latest_url != original_url
-                
-                if latest_url != original_url:
-                    print(f"✅ Updated to latest video URL")
-                else:
-                    print(f"ℹ️ Using original URL (already a video or no latest found)")
-
-        # Step 2: Proceed with original detection loop
-        print(f"\n🎤 Step 2: Starting voice content detection...")
-        
-        voice_detected_links = []
-        skipped_channels = 0
-        skipped_invalid = 0
-        processing_errors = 0
-
-        for i, link_data in enumerate(audio_links, 1):
-            url = link_data.get('url', '')
-            platform = link_data.get('platform_type', 'unknown')
-            username = link_data.get('username', 'unknown')
-
-            # Handle NaN values
-            if not isinstance(platform, str) or pd.isna(platform):
-                platform = 'unknown'
-            if not isinstance(username, str) or pd.isna(username):
-                username = 'unknown'
-
-            print(f"\n🎤 [{i}/{len(audio_links)}] {platform.upper()} - @{username}")
-            print(f"🔗 URL: {url[:80]}...")
-            
-            if link_data.get('url_converted', False):
-                print(f"🔄 (Converted from channel to latest video)")
-
-            # Enhanced URL validation
-            url_validation = self._validate_processable_url(url, platform)
-
-            if not url_validation['valid']:
-                reason = url_validation['reason']
-                print(f"❌ Skipped: {reason}")
-                if 'channel' in reason:
-                    skipped_channels += 1
-                else:
-                    skipped_invalid += 1
-                link_data.update({
-                    'has_audio': False,
-                    'audio_confidence': 'low',
-                    'audio_type': f'skipped_{url_validation.get("type", "unknown")}',
-                    'detection_status': f'skipped: {reason}',
-                    'skip_reason': reason
-                })
-                continue
-
-            try:
-                # Duration check
-                if not self._check_duration_valid(url, link_data):
-                    continue
-
-                # Comprehensive voice detection
-                result = self._comprehensive_voice_detection(url, platform, link_data)
-
-                # Update link data
-                link_data.update({
-                    'has_audio': result['has_voice'],
-                    'audio_confidence': result['confidence'],
-                    'audio_type': result['content_type'],
-                    'detection_status': result['status'],
-                    'voice_probability': result.get('voice_probability', 0.0),
-                    'detection_method': result['method'],
-                    'voice_indicators': result.get('indicators', [])
-                })
-
-                if result['has_voice']:
-                    voice_detected_links.append(link_data)
-                    confidence_emoji = "🎙️" if result['confidence'] == 'high' else "🎧" if result['confidence'] == 'medium' else "🔊"
-                    print(f"{confidence_emoji} Voice detected: {result['confidence']} confidence ({result.get('voice_probability', 0):.1%})")
-                    print(f" Content type: {result['content_type']}")
-                    print(f" Method: {result['method']}")
-                else:
-                    print(f"❌ No voice: {result['content_type']} ({result.get('voice_probability', 0):.1%})")
-
-            except Exception as e:
-                processing_errors += 1
-                self.logger.error(f"Error processing {url}: {e}")
-                link_data.update({
-                    'has_audio': False,
-                    'audio_confidence': 'low',
-                    'audio_type': 'processing_error',
-                    'detection_status': f'error: {str(e)}'
-                })
-
-            time.sleep(0.3)  # Rate limiting
-
-        # Enhanced summary
-        total_processed = len(audio_links)
-        successfully_processed = total_processed - skipped_channels - skipped_invalid - processing_errors
-        converted_count = sum(1 for link in audio_links if link.get('url_converted', False))
-
-        print(f"\n📊 Enhanced Voice Detection Summary:")
-        print(f"🔄 Channel URLs converted to latest videos: {converted_count}")
-        print(f"🎙️ Voice detected: {len(voice_detected_links)}")
-        print(f"✅ Successfully processed: {successfully_processed}")
-        print(f"🏠 Skipped channels: {skipped_channels}")
-        print(f"❌ Skipped invalid: {skipped_invalid}")
-        print(f"🔧 Processing errors: {processing_errors}")
-
-        if successfully_processed > 0:
-            success_rate = len(voice_detected_links) / successfully_processed * 100
-            print(f"📈 Voice detection rate: {success_rate:.1f}%")
-
-        return voice_detected_links
-
-    # ... (rest of the methods remain the same as in original file)
-    # I'll include the key validation methods below:
-
-    def _validate_processable_url(self, url: str, platform: str) -> Dict:
-        """Enhanced URL validation with type classification"""
-        if not url or not isinstance(url, str):
-            return {'valid': False, 'reason': 'empty_url', 'type': 'invalid'}
-
-        # Check for placeholder strings
-        invalid_placeholders = [
-            'tiktok_default', 'youtube_default', 'twitch_default',
-            'unknown', 'default', 'placeholder'
-        ]
-        
-        if url.lower() in invalid_placeholders:
-            return {'valid': False, 'reason': 'placeholder_url', 'type': 'placeholder'}
-
-        # Basic URL validation
-        if not (url.startswith('http://') or url.startswith('https://')):
-            return {'valid': False, 'reason': 'invalid_protocol', 'type': 'invalid'}
-
-        # Platform-specific validation
-        if platform == 'youtube':
-            return self._validate_youtube_url(url)
-        elif platform == 'twitch':
-            return self._validate_twitch_url(url)
-        elif platform == 'tiktok':
-            return self._validate_tiktok_url(url)
-        
-        return {'valid': True, 'reason': 'assumed_valid', 'type': 'unknown'}
-
-    def _validate_youtube_url(self, url: str) -> Dict:
-        """Validate YouTube URL and classify type"""
-        try:
-            # Video URL patterns
-            video_patterns = [
-                r'/watch\?.*v=([a-zA-Z0-9_-]{11})',
-                r'/v/([a-zA-Z0-9_-]{11})',
-                r'/embed/([a-zA-Z0-9_-]{11})',
-                r'youtu\.be/([a-zA-Z0-9_-]{11})'
-            ]
-            
-            for pattern in video_patterns:
-                match = re.search(pattern, url)
-                if match:
-                    return {
-                        'valid': True,
-                        'reason': 'valid_youtube_video',
-                        'type': 'video',
-                        'video_id': match.group(1)
-                    }
-            
-            # Since we now convert channels to videos, we accept all YouTube URLs
-            return {'valid': True, 'reason': 'youtube_url_processed', 'type': 'processed'}
-            
-        except Exception as e:
-            return {'valid': False, 'reason': f'youtube_validation_error: {str(e)}', 'type': 'error'}
-
-    def _validate_twitch_url(self, url: str) -> Dict:
-        """Validate Twitch URL"""
-        if re.search(r'twitch\.tv/videos/\d+', url) or re.search(r'twitch\.tv/\w+/clip/', url):
-            return {'valid': True, 'reason': 'valid_twitch_video', 'type': 'video'}
-        else:
-            # Accept all Twitch URLs since we convert channels to videos
-            return {'valid': True, 'reason': 'twitch_url_processed', 'type': 'processed'}
-
-    def _validate_tiktok_url(self, url: str) -> Dict:
-        """Validate TikTok URL"""
-        if re.search(r'tiktok\.com/@\w+/video/\d+', url):
-            return {'valid': True, 'reason': 'valid_tiktok_video', 'type': 'video'}
-        else:
-            # Accept TikTok profile URLs since we convert them to latest video
-            return {'valid': True, 'reason': 'tiktok_url_processed', 'type': 'processed'}
-
-    def _check_duration_valid(self, url: str, link_data: Dict) -> bool:
-        """ИСПРАВЛЕННАЯ ВЕРСИЯ: пропускаем каналы, проверяем только видео"""
-        
-        # ВАЖНО: Пропускаем проверку для всех каналов
-        channel_indicators = ['/c/', '/channel/', '/user/', '/@', '/videos', 'fabuponah', 'jamescharles']
-        if any(indicator in url for indicator in channel_indicators):
-            print("  ⚠️ Skipping duration check for channel/profile URL")
-            return True
-        
-        # Пропускаем если нет video ID в URL
-        if not re.search(r'watch\?v=([a-zA-Z0-9_-]{11})', url):
-            print("  ⚠️ No video ID found, skipping duration check")
-            return True
-        
-        if 'duration' in link_data and 'valid' in link_data:
-            return link_data['valid']
-
-        print("  ⏰ Checking video duration...")
-
-        if not YT_DLP_AVAILABLE:
-            print("  ⚠️ yt-dlp not available, assuming valid")
-            return True
-
-        try:
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': False,
-                'socket_timeout': 8,
-                'ignore_errors': True,
-                'no_check_certificates': True
-            }
-
-            import signal
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Duration check timed out")
-            
-            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(10)  # 10 секунд максимум
-
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-                
-                duration = info.get('duration', 0)
-
-                if duration == 0:
-                    print("  ✅ No duration found - assuming valid")
-                    return True
-                elif duration < self.min_duration:
-                    print(f"  ⏰ Too short ({duration}s)")
-                    return False
-                elif duration > self.max_duration:
-                    print(f"  ⏰ Too long ({duration}s)")
-                    return False
-                else:
-                    print(f"  ✅ Duration valid: {duration}s")
-                    link_data.update({'duration': duration, 'valid': True})
-                    return True
-
-            except TimeoutError:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-                print("  ⏰ Duration check timed out - assuming valid")
-                return True
-
-        except Exception as e:
-            print(f"  ⚠️ Duration check failed: {str(e)[:30]}... - assuming valid")
-            return True
-
-
-
-    def _comprehensive_voice_detection(self, url: str, platform: str, link_data: Dict) -> Dict:
-        """Comprehensive voice detection using multiple methods"""
-        print(" 📋 Level 1: Metadata analysis...")
-        metadata_result = self._analyze_video_metadata(url, platform)
-        
-        print(" 📄 Level 2: Content keyword analysis...")
-        content_result = self._analyze_content_keywords(url, platform)
-        
-        print(" 🔍 Level 3: Caption analysis...")
-        caption_result = self._analyze_captions_comprehensive(url, platform)
-        
-        # Audio spectral analysis (if available)
-        audio_result = None
-        if YT_DLP_AVAILABLE and LIBROSA_AVAILABLE:
-            print(" 🔊 Level 4: Audio spectral analysis...")
-            audio_result = self._analyze_audio_spectrum(url, link_data)
-        
-        # VAD analysis (if available)
-        vad_result = None
-        if self.vad_pipeline and YT_DLP_AVAILABLE:
-            print(" 🎤 Level 5: VAD analysis...")
-            vad_result = self._perform_vad_analysis(url, link_data)
-        
-        # Combine all results
-        final_result = self._combine_detection_results(
-            metadata_result, content_result, caption_result,
-            audio_result, vad_result, platform
+        # Use multiprocessing for isolation
+        result_queue = multiprocessing.Queue()
+        process = multiprocessing.Process(
+            target=extract_metadata_isolated,
+            args=(url, platform, result_queue, self.voice_keywords, self.music_keywords)
         )
         
-        return final_result
-
-    def _analyze_video_metadata(self, url: str, platform: str) -> Dict:
-        """Analyze video metadata with TikTok-specific fixes"""
-        if not YT_DLP_AVAILABLE:
-            return {'score': 0.5, 'indicators': [], 'method': 'no_metadata'}
-
+        print("  🔄 Extracting metadata...")
+        process.start()
+        process.join(timeout=5)
+        
+        if process.is_alive():
+            print("  ⏰ Terminating hung process")
+            process.terminate()
+            process.join(timeout=1)
+            if process.is_alive():
+                process.kill()
+            return {'score': 0.6, 'indicators': ['process_timeout'], 'method': 'timeout'}
+        
         try:
-            # TikTok-специфичные настройки
-            if platform == 'tiktok':
-                ydl_opts = {
-                    'quiet': True,
-                    'no_warnings': True,
-                    'extract_flat': False,
-                    'writeinfojson': False,
-                    'socket_timeout': 5,  # Короткий таймаут для TikTok
-                    'retries': 1,
-                    'extractor_args': {
-                        'tiktok': {
-                            'api_hostname': 'api22-normal-c-useast2a.tiktokv.com'  # Обновленный API
-                        }
-                    },
-                    'ignore_errors': True,
-                    'skip_unavailable_fragments': True
-                }
-            else:
-                ydl_opts = {
-                    'quiet': True,
-                    'no_warnings': True,
-                    'extract_flat': False,
-                    'writeinfojson': False,
-                    'socket_timeout': 8
-                }
-
-            # Принудительный таймаут для всего процесса
-            import signal
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Metadata extraction timed out")
-            
-            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(10 if platform != 'tiktok' else 5)  # TikTok = 5 сек, остальные = 10 сек
-
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-                
-                title = info.get('title', '').lower()
-                description = info.get('description', '').lower()
-                
-                voice_score = 0
-                music_score = 0
-                indicators = []
-                
-                # Analyze title and description
-                text_content = f"{title} {description}"
-                
-                # Score voice indicators
-                for keyword in self.voice_keywords['strong_voice']:
-                    count = text_content.count(keyword)
-                    if count > 0:
-                        voice_score += count * 3
-                        indicators.append(f'voice_{keyword}({count})')
-                
-                for keyword in self.voice_keywords['likely_voice']:
-                    count = text_content.count(keyword)
-                    if count > 0:
-                        voice_score += count * 2
-                        indicators.append(f'voice_{keyword}({count})')
-                
-                # Score music indicators
-                for keyword in self.music_keywords['strong_music']:
-                    count = text_content.count(keyword)
-                    if count > 0:
-                        music_score += count * 3
-                        indicators.append(f'music_{keyword}({count})')
-                
-                # Calculate probability
-                total_score = voice_score + music_score
-                voice_probability = voice_score / total_score if total_score > 0 else 0.5
-                
-                return {
-                    'score': voice_probability,
-                    'voice_score': voice_score,
-                    'music_score': music_score,
-                    'indicators': indicators,
-                    'method': 'metadata_analysis'
-                }
-
-            except TimeoutError:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-                print(f"  ⏰ Metadata extraction timed out for {platform}")
-                return {'score': 0.6, 'indicators': ['timeout_fallback'], 'method': 'timeout_fallback'}
-
-        except Exception as e:
-            print(f"  ⚠️ Metadata extraction failed: {str(e)[:40]}...")
-            # Для TikTok возвращаем более высокий score (обычно голосовой контент)
-            fallback_score = 0.7 if platform == 'tiktok' else 0.5
-            return {
-                'score': fallback_score, 
-                'indicators': ['extraction_failed'], 
-                'method': 'metadata_failed'
-            }
-
-
+            return result_queue.get_nowait()
+        except:
+            return {'score': 0.5, 'indicators': ['no_result'], 'method': 'no_result'}
+    
     def _analyze_content_keywords(self, url: str, platform: str) -> Dict:
-        """Analyze webpage content for voice/music keywords"""
+        """Analyze webpage content for keywords"""
         try:
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get(url, timeout=8)
             content = response.text.lower()
-            
             voice_score = 0
             music_score = 0
             indicators = []
             
-            # Search for keywords in HTML
             for keyword in self.voice_keywords['strong_voice']:
                 count = content.count(keyword)
                 if count > 0:
@@ -901,115 +514,161 @@ class EnhancedVoiceDetector:
                     music_score += count * 3
                     indicators.append(f'html_music_{keyword}({count})')
             
-            # Calculate probability
             total_score = voice_score + music_score
-            voice_probability = voice_score / total_score if total_score > 0 else 0.5
+            score = voice_score / total_score if total_score > 0 else 0.5
             
             return {
-                'score': voice_probability,
+                'score': score,
                 'voice_score': voice_score,
                 'music_score': music_score,
                 'indicators': indicators,
                 'method': 'content_keywords'
             }
+            
         except Exception as e:
             return {'score': 0.5, 'indicators': [], 'method': 'content_failed'}
-
-    def _analyze_captions_comprehensive(self, url: str, platform: str) -> Dict:
-        """Comprehensive caption analysis"""
-        if platform != 'youtube':
-            return {'has_captions': False, 'score': 0.5, 'method': 'non_youtube'}
+    
+    def _analyze_smart_audio_content(self, url: str) -> Optional[Dict]:
+        """Analyze audio content using smart middle-segment extraction"""
+        if not self.audio_analysis_enabled or not self.audio_analyzers:
+            return None
+            
+        print("  🎵 Smart audio extraction from middle segments...")
         
-        # Basic caption detection
+        # Extract smart audio sample
+        audio_path = self.audio_extractor.extract_smart_audio_sample(
+            url, 
+            sample_duration=self.audio_sample_duration
+        )
+        
+        if not audio_path:
+            self.logger.warning("Failed to extract smart audio sample")
+            return None
+            
         try:
-            response = self.session.get(url, timeout=self.timeout)
-            content = response.text
+            # Run audio analyzers
+            results = []
+            for analyzer in self.audio_analyzers:
+                try:
+                    result = analyzer.analyze(audio_path)
+                    results.append(result)
+                    print(f"    📊 {result['method']}: {result['voice_probability']:.3f}")
+                except Exception as e:
+                    self.logger.error(f"Analyzer failed: {e}")
             
-            has_captions = any(
-                pattern in content.lower() for pattern in [
-                    'captiontrack', 'captions', 'subtitle', 'cc'
-                ]
-            )
-            
-            # Score based on caption presence
-            score = 0.7 if has_captions else 0.5
-            
-            return {
-                'has_captions': has_captions,
-                'score': score,
-                'method': 'caption_detection'
-            }
-        except Exception:
-            return {'has_captions': False, 'score': 0.5, 'method': 'caption_failed'}
-
-    def _analyze_audio_spectrum(self, url: str, link_data: Dict) -> Optional[Dict]:
-        """Spectral analysis of audio for voice detection"""
-        if not (YT_DLP_AVAILABLE and LIBROSA_AVAILABLE):
-            return None
+            # Combine audio analysis results
+            if results:
+                return self._combine_audio_results(results)
+            else:
+                return None
+                
+        finally:
+            # Clean up temporary audio file
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+            except:
+                pass
+    
+    def _combine_audio_results(self, results: List[Dict]) -> Dict:
+        """Combine multiple audio analysis results with lower thresholds"""
+        if not results:
+            return {'voice_detected': False, 'voice_probability': 0.5, 'confidence': 'low'}
         
-        # Simplified version - return basic analysis
+        # Average the probabilities
+        total_prob = sum(result['voice_probability'] for result in results)
+        avg_prob = total_prob / len(results)
+        
+        print(f"    📊 Audio analysis average: {avg_prob:.3f}")
+        
+        # ✅ ИСПРАВЛЕНИЕ: Снижен порог с 0.25 до 0.15
+        voice_detected = avg_prob > 0.15  # Было: 0.25
+        
+        # ✅ ИСПРАВЛЕНИЕ: Более мягкие пороги confidence
+        confidence = 'high' if avg_prob > 0.5 else 'medium' if avg_prob > 0.15 else 'low'  # Было: 0.6 и 0.25
+        
+        all_indicators = []
+        methods = []
+        for result in results:
+            all_indicators.extend(result.get('indicators', []))
+            methods.append(result['method'])
+        
         return {
-            'score': 0.6,
-            'voice_indicators': 1,
-            'music_indicators': 0,
-            'indicators': ['basic_audio_analysis'],
-            'method': 'spectral_analysis'
+            'voice_detected': voice_detected,
+            'voice_probability': avg_prob,
+            'confidence': confidence,
+            'method': '+'.join(methods),
+            'indicators': all_indicators[:10]
         }
 
-    def _perform_vad_analysis(self, url: str, link_data: Dict) -> Optional[Dict]:
-        """Perform Voice Activity Detection analysis"""
-        if not self.vad_pipeline:
-            return None
+    
+    def _comprehensive_voice_detection(self, url: str, platform: str, link_data: Dict) -> Dict:
+        """Comprehensive voice detection with improved audio triggering"""
+        print("  📋 Level 1: Metadata analysis...")
+        metadata_result = self._analyze_video_metadata(url, platform)
         
-        # Simplified version - return basic VAD
-        return {
-            'score': 0.7,
-            'speech_ratio': 0.7,
-            'total_duration': 100,
-            'speech_duration': 70,
-            'method': 'vad_analysis'
-        }
+        print("  📄 Level 2: Content keyword analysis...")
+        content_result = self._analyze_content_keywords(url, platform)
+        
+        # Calculate initial probability
+        metadata_score = metadata_result.get('score', 0.5)
+        content_score = content_result.get('score', 0.5)
+        initial_probability = (metadata_score * 0.6 + content_score * 0.4)
+        
+        print(f"  📊 Metadata: {metadata_score:.3f}, Content: {content_score:.3f}")
+        print(f"  📊 Initial combined: {initial_probability:.3f}")
+        
+        
+        # ✅ ИСПРАВЛЕНИЕ: Принудительный аудио анализ для всех видео
+        audio_result = None
+        force_audio = self.config.get('force_audio_analysis', False)
+        
+        if self.audio_analysis_enabled and (force_audio or (0.15 <= initial_probability <= 0.85)):
+            if force_audio:
+                print("  🎵 Level 3: Forced audio analysis for all videos...")
+            else:
+                print("  🎵 Level 3: Smart audio analysis (expanded trigger)...")
+                
+            audio_result = self._analyze_smart_audio_content(url)
+        
+        # Combine all results
+        return self._combine_all_results(metadata_result, content_result, audio_result)
 
-    def _combine_detection_results(self, metadata_result: Dict, content_result: Dict,
-                                caption_result: Dict, audio_result: Optional[Dict],
-                                vad_result: Optional[Dict], platform: str) -> Dict:
-        """Combine results from all detection methods"""
-        # Weights for different methods
-        weights = {
-            'metadata': 0.4,
-            'content': 0.3,
-            'captions': 0.3,
-            'audio': 0.0 if not audio_result else 0.2,
-            'vad': 0.0 if not vad_result else 0.3
-        }
+    
+    def _combine_all_results(self, metadata_result: Dict, content_result: Dict, audio_result: Optional[Dict]) -> Dict:
+        """Combine all analysis results with improved thresholds"""
         
-        # Normalize weights
-        total_weight = sum(weights.values())
-        if total_weight > 0:
-            for key in weights:
-                weights[key] /= total_weight
+        # Более агрессивные веса для аудио
+        if audio_result:
+            metadata_weight = 0.2    # Снижено с 0.25
+            content_weight = 0.2     # Снижено с 0.25  
+            audio_weight = 0.6       # Увеличено с 0.5
+        else:
+            metadata_weight = 0.6
+            content_weight = 0.4
+            audio_weight = 0.0
         
-        # Calculate weighted voice probability
-        voice_probability = 0
-        voice_probability += metadata_result['score'] * weights['metadata']
-        voice_probability += content_result['score'] * weights['content']
-        voice_probability += caption_result['score'] * weights['captions']
+        # Calculate final probability
+        final_probability = (
+            metadata_result.get('score', 0.5) * metadata_weight +
+            content_result.get('score', 0.5) * content_weight
+        )
         
         if audio_result:
-            voice_probability += audio_result['score'] * weights['audio']
-        if vad_result:
-            voice_probability += vad_result['score'] * weights['vad']
+            final_probability += audio_result['voice_probability'] * audio_weight
         
-        # Determine confidence
-        if voice_probability > 0.75:
+        print(f"  📊 Final probability: {final_probability:.3f}")
+        
+        # ✅ ИСПРАВЛЕНИЕ: Снижен порог с 0.6 до 0.5
+        voice_detected = final_probability >= 0.5  # Было: self.voice_threshold (0.6)
+        
+        # ✅ ИСПРАВЛЕНИЕ: Более мягкие пороги confidence
+        if final_probability > 0.75:
             confidence = 'high'
-        elif voice_probability > 0.5:
+        elif final_probability > 0.5:   # Было: 0.6
             confidence = 'medium'
         else:
             confidence = 'low'
-        
-        # Decision
-        has_voice = voice_probability > 0.5
         
         # Collect indicators
         all_indicators = []
@@ -1019,55 +678,111 @@ class EnhancedVoiceDetector:
             all_indicators.extend(audio_result.get('indicators', []))
         
         # Build method string
-        methods_used = [metadata_result.get('method', ''), content_result.get('method', '')]
+        methods = [metadata_result.get('method', ''), content_result.get('method', '')]
         if audio_result:
-            methods_used.append(audio_result.get('method', ''))
-        if vad_result:
-            methods_used.append(vad_result.get('method', ''))
+            methods.append(audio_result['method'])
         
         return {
-            'has_voice': has_voice,
+            'has_voice': voice_detected,
             'confidence': confidence,
-            'voice_probability': voice_probability,
-            'content_type': 'likely_voice' if has_voice else 'likely_music',
-            'method': '+'.join(filter(None, methods_used)),
-            'status': f"Combined analysis: {len(all_indicators)} indicators",
-            'indicators': all_indicators[:10]  # Limit indicators
+            'voice_probability': final_probability,
+            'content_type': 'likely_voice' if voice_detected else 'likely_music',
+            'method': '+'.join(filter(None, methods)),
+            'status': f'Enhanced analysis: audio={"yes" if audio_result else "no"}, threshold=50%',
+            'indicators': all_indicators[:15]
         }
 
-# Main function for easy usage
-def detect_voice_content_from_config(audio_links: List[Dict], config_path: str = "config.json") -> List[Dict]:
-    """
-    Detect voice content using configuration file with latest video fetching
     
-    Args:
-        audio_links: List of audio link dictionaries
-        config_path: Path to configuration JSON file
-        
-    Returns:
-        List of links with voice content detected
-    """
-    detector = EnhancedVoiceDetector(config_path)
-    return detector.detect_audio_content(audio_links)
+    def detect_audio_content(self, audio_links: List[Dict]) -> List[Dict]:
+        """Main detection function with smart audio analysis"""
+        if not audio_links:
+            print("🔍 No audio links to detect")
+            return []
 
-# Usage example:
-if __name__ == "__main__":
-    import pandas as pd
-    
-    # Load your audio links
-    df = pd.read_csv("output/4_snapshot_s_mfe459qg4lyyv2wea_external_links_audio_links.csv")
-    audio_links = df.to_dict('records')
-    print(f"📥 Loaded {len(audio_links)} audio links from CSV")
-    
-    # Use the UPDATED detector with latest video fetching
-    detector = EnhancedVoiceDetector("config.json")
-    results = detector.detect_audio_content(audio_links)
-    
-    print(f"🎙️ Found {len(results)} links with voice content")
-    
-    # Save results
-    if results:
-        results_df = pd.DataFrame(results)
-        output_file = "output/5_voice_detected_links_with_latest_videos.csv"
-        results_df.to_csv(output_file, index=False)
-        print(f"💾 Results saved to: {output_file}")
+        print(f"\n🎤 Starting SMART VOICE detection for {len(audio_links)} links...")
+        print(f"🎯 Smart extraction: {'✅ Enabled' if self.smart_extraction else '❌ Disabled'}")
+        print(f"🔧 Available analyzers: {len(self.audio_analyzers)}")
+
+        voice_detected_links = []
+        processing_errors = 0
+        audio_analyzed_count = 0
+
+        for i, link_data in enumerate(audio_links, 1):
+            url = link_data.get('url', '')  # ✅ Правильный отступ
+            platform = link_data.get('platform_type', 'unknown')
+            username = link_data.get('username', 'unknown')
+            
+            # Handle NaN values
+            if not isinstance(platform, str) or pd.isna(platform):
+                platform = 'unknown'
+            if not isinstance(username, str) or pd.isna(username):
+                username = 'unknown'
+            
+            print(f"\n🎤 [{i}/{len(audio_links)}] {platform.upper()} - @{username}")
+            print(f"🔗 URL: {url[:80]}...")
+            
+            if not url or not url.startswith('http'):
+                print("❌ Invalid URL")
+                continue
+            
+            try:
+                # ✅ ЕДИНСТВЕННЫЙ вызов comprehensive_voice_detection
+                result = self._comprehensive_voice_detection(url, platform, link_data)
+                
+                # ✅ Подробное логирование результата
+                print(f"📊 Final result:")
+                print(f"   Voice detected: {result['has_voice']}")
+                print(f"   Confidence: {result['confidence']}")  
+                print(f"   Probability: {result.get('voice_probability', 0):.3f}")
+                print(f"   Method: {result['method']}")
+                print(f"   Status: {result['status']}")
+                
+                # Track audio analysis usage
+                if 'silero' in result['method'] or 'spectral' in result['method']:
+                    audio_analyzed_count += 1
+                    print("🔊 Audio analysis was performed")
+                
+                # Update link data
+                link_data.update({
+                    'has_audio': result['has_voice'],
+                    'audio_confidence': result['confidence'],
+                    'audio_type': result['content_type'],
+                    'detection_status': result['status'],
+                    'voice_probability': result.get('voice_probability', 0.0),
+                    'detection_method': result['method'],
+                    'voice_indicators': result.get('indicators', [])
+                })
+                
+                # ✅ ЕДИНСТВЕННОЕ добавление в результаты
+                if result['has_voice']:
+                    voice_detected_links.append(link_data)
+                    confidence_emoji = "🎙️" if result['confidence'] == 'high' else "🎧" if result['confidence'] == 'medium' else "🔊"
+                    print(f"{confidence_emoji} ✅ VOICE DETECTED")
+                else:
+                    print(f"❌ NO VOICE DETECTED")
+                    
+            except Exception as e:
+                processing_errors += 1
+                self.logger.error(f"Error processing {url}: {e}")
+                link_data.update({
+                    'has_audio': False,
+                    'audio_confidence': 'low',
+                    'audio_type': 'processing_error',
+                    'detection_status': f'error: {str(e)}'
+                })
+            
+            time.sleep(0.2)  # Rate limiting
+
+        # Summary
+        total_processed = len(audio_links)
+        print(f"\n📊 Smart Voice Detection Summary:")
+        print(f"🎙️ Voice detected: {len(voice_detected_links)}")
+        print(f"🎵 Smart audio analyzed: {audio_analyzed_count}")
+        print(f"✅ Successfully processed: {total_processed - processing_errors}")
+        print(f"🔧 Processing errors: {processing_errors}")
+
+        if total_processed - processing_errors > 0:
+            success_rate = len(voice_detected_links) / (total_processed - processing_errors) * 100
+            print(f"📈 Voice detection rate: {success_rate:.1f}%")
+
+        return voice_detected_links
