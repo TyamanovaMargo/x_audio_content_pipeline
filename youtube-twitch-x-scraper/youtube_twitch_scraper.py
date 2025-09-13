@@ -549,16 +549,17 @@ class YouTubeTwitchScraper:
                     results['twitch_url'] = best_match['url']
                     results['twitch_score'] = best_match['score']
                     results['twitch_not_sure'] = not_sure
-            elif fallback_url:
-                # Use fallback URL when enhanced matching fails
-                if platform == 'youtube':
-                    results['youtube_url'] = fallback_url
-                    results['youtube_score'] = 30
-                    results['youtube_not_sure'] = 1
-                else:
-                    results['twitch_url'] = fallback_url
-                    results['twitch_score'] = 30
-                    results['twitch_not_sure'] = 1
+            # DISABLED: Stage 2 fallback strategy
+            # elif fallback_url:
+            #     # Use fallback URL when enhanced matching fails
+            #     if platform == 'youtube':
+            #         results['youtube_url'] = fallback_url
+            #         results['youtube_score'] = 30
+            #         results['youtube_not_sure'] = 1
+            #     else:
+            #         results['twitch_url'] = fallback_url
+            #         results['twitch_score'] = 30
+            #         results['twitch_not_sure'] = 1
         
         return results
 
