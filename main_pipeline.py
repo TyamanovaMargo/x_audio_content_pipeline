@@ -93,6 +93,12 @@ def main(input_file, force_recheck=False):
     links_file = os.path.join(cfg.OUTPUT_DIR, f"3_snapshot_{snapshot_id}_external_links.csv")
     pd.DataFrame(links).to_csv(links_file, index=False)
     print(f"🔗 Saved {len(links)} external links to: {links_file}")
+    print(f"✅ Stage 3 completed!")
+    print(f"🔗 External links found: {len(links)}")
+    print(f"📁 Links file: {links_file}")
+    print(f"💡 Next: Run Stage 3.5 with --stage3_5-only {links_file}")
+    print(f"💡 Alternative: Skip Stage 3.5 and run Stage 4 with --stage4-only {links_file}")
+    return links_file
 
     # Stage 3.5: YouTube & Twitch Channel Discovery
     print("\n🔍 STAGE 3.5: YouTube & Twitch Channel Discovery")
@@ -705,7 +711,8 @@ def run_stage3_only(snapshot_id):
     print(f"✅ Stage 3 completed!")
     print(f"🔗 External links found: {len(links)}")
     print(f"📁 Links file: {links_file}")
-    print(f"💡 Next: Run Stage 4 with --stage4-only {links_file}")
+    print(f"💡 Next: Run Stage 3.5 with --stage3_5-only {links_file}")
+    print(f"💡 Alternative: Skip Stage 3.5 and run Stage 4 with --stage4-only {links_file}")
     return links_file
 
 
@@ -722,7 +729,7 @@ def run_stage3_5_only(links_file):
     links = df.to_dict('records')
     print(f"📥 Loaded {len(links)} links from: {links_file}")
     
-    runner = Step3_5_YouTubeTwitchRunner("output")
+    runner = Step3_5_YouTubeTwitchRunner(cfg.OUTPUT_DIR)
     enhanced_file = runner.run_scraper_for_snapshot(links)
 
     if enhanced_file:
