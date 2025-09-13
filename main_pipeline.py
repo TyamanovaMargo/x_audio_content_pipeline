@@ -9,7 +9,7 @@ from step2_bright_data_trigger import BrightDataTrigger
 from step3_bright_data_download import BrightDataDownloader
 from step3_5_youtube_twitch_runner import Step3_5_YouTubeTwitchRunner
 from step4_audio_filter import AudioContentFilter
-from step5_audio_detector import EnhancedVoiceDetector as AudioContentDetector
+from step5_voice_detector import MetadataVoiceDetector as AudioContentDetector
 from step6_voice_sample_extractor import AudioDownloader, save_results
 from step7_overlap_detector import PyannoteWhisperProcessor # Updated import
 from snapshot_manager import SnapshotManager
@@ -25,7 +25,7 @@ def main(input_file, force_recheck=False):
     print("🤖 AI Model: OpenAI Whisper for speech recognition and overlap detection")
     print("🎤 Pipeline: MP3 → WAV conversion → Whisper Processing → Transcription")
     print("🔍 Stages: 7 comprehensive processing stages (1→2→3→4→5→6→6.5→7)")
-    print("🔄 Audio Flow: Stage 6 (MP3) → Stage 6.5 (MP3→WAV+Whisper) → Stage 7 (WAV+Transcripts)")
+    print("🔄 Audio Flow: Stage 6 (MP3) → Stage 7 (WAV+Transcripts)")
 
     # Stage 1: Account Validation with Persistent Logging
     print("\n✅ STAGE 1: Account Validation with Persistent Logging")
@@ -1042,7 +1042,7 @@ if __name__ == "__main__":
             print(f"🚀 Starting Whisper enhanced 7-stage pipeline")
             print(f"🤖 AI Model: OpenAI Whisper for speech processing and transcription")
             print(f"🔄 Force recheck: {'Yes' if args.force_recheck else 'No (using cache)'}")
-            print(f"🎵 Audio flow: Stage 6 (MP3) → Stage 6.5 (Whisper) → Stage 7 (Enhanced)")
+            print(f"🎵 Audio flow: Stage 6 (MP3) → Stage 7 (WAV+Transcripts)")
             main(args.input, args.force_recheck)
         except KeyboardInterrupt:
             print("\n⏹️ Pipeline interrupted by user (Ctrl+C)")

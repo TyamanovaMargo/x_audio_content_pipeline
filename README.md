@@ -5,9 +5,11 @@
 
 ## Overview
 
-This project is a comprehensive Python-based pipeline designed to process X/Twitter usernames, validate accounts, collect profile data using Bright Data, extract external links, filter for audio content from platforms like YouTube and Twitch, detect and verify voice content, extract audio samples, and perform advanced voice processing to isolate voice-only segments.
+This is a comprehensive Python-based pipeline designed to extract and process voice content from X/Twitter profiles. The pipeline validates accounts, collects profile data using Bright Data, extracts external links, filters for audio content from platforms like YouTube and Twitch, and uses OpenAI Whisper for advanced voice processing and transcription.
 
-The pipeline is modular, with each step building on the previous one to automate the extraction of high-quality voice samples from social media profiles. It includes duplicate prevention, logging, and reporting features for efficient data management.
+The pipeline is modular with 7 main stages, each building on the previous one to automate the extraction of high-quality voice samples from social media profiles. It includes comprehensive timing measurement, duplicate prevention, logging, and reporting features for efficient data management.
+
+**🤖 AI Enhancement:** Integrated OpenAI Whisper for speech recognition, overlap detection, and transcription in stage 7.
 
 Key goals:
 - Validate and filter valid X/Twitter accounts.
@@ -58,46 +60,34 @@ pip install -r requirements.txt
 
 The pipeline is divided into sequential steps. Run them in order, or integrate into a main script. Outputs from one step feed into the next (e.g., via CSV files).
 
-### Step 1: Validate Accounts
-Validate usernames from an input file and output valid accounts.
-python step1_validate_accounts.py --input sample_usernames.csv --output validated_accounts.csv
+### Individual Stages
+Run specific stages independently:
 
-- Options: `--force-recheck` to reprocess all, `--max-accounts N` to limit processing.
+```bash
+# Stage 1: Account Validation
+python main_pipeline.py --stage1-only sample_usernames.csv
 
-### Step 2: Manage & Trigger Snapshots
-Use SnapshotManager to check for duplicates and trigger Bright Data snapshots.
-- Integrate with `step2_bright_data_trigger.py` for API calls.
+# Stage 2: Bright Data Trigger
+python main_pipeline.py --stage2-only output/1_existing_accounts.csv
 
-### Step 3: Download Snapshot Data
-Download data from Bright Data snapshots.
-python step3_bright_data_download.py --snapshot-id YOUR_SNAPSHOT_ID
+# Stage 3: Data Download
+python main_pipeline.py --stage3-only s_snapshot_id
 
+# Stage 3.5: YouTube/Twitch Discovery (Optional)
+python main_pipeline.py --stage3_5-only output/3_snapshot_xyz_external_links.csv
 
-### Step 4: Filter Audio Links
-Filter extracted links to YouTube/Twitch.
-- Use `step4_audio_filter.py` on downloaded data.
+# Stage 4: Audio Platform Filtering
+python main_pipeline.py --stage4-only output/3_snapshot_xyz_external_links.csv
 
-### Step 4.5: Detect Audio Content
-Detect if links contain audio.
-- Run `step4_5_audio_detector.py`.
+# Stage 5: Audio Content Detection
+python main_pipeline.py --stage5-only output/4_snapshot_xyz_audio_links.csv
 
-### Step 5: Verify Voice Content
-Verify presence of voice (e.g., speech vs. music).
-- Run `step5_voice_verification.py`.
+# Stage 6: Voice Sample Extraction
+python main_pipeline.py --stage6-only output/5_snapshot_xyz_audio_detected.csv
 
-### Step 6: Extract Voice Samples
-Extract MP3 samples from confirmed voice links.
-python step6_voice_sample_extractor.py --input confirmed_voice.csv --output-dir voice_samples --duration 120 --quality 192
-
-- Generates samples in `voice_samples/` with filenames like `username_source_timestamp.mp3`.
-- Options: `--list-files`, `--clean-temp` for maintenance.
-
-### Step 7: Advanced Voice Processing
-Process extracted samples to isolate voice-only audio.
-python step7_advanced_voice_processor.py voice_samples/ --output-dir voice_analysis
-
-- Outputs voice-only WAV files in `voice_analysis/voice_only_audio/`.
-- Generates reports and CSV results.
+# Stage 7: Advanced Whisper Analysis
+python main_pipeline.py --stage7-only output/voice_samples/
+```
 
 ### Full Pipeline Example
 Create a main.py to chain steps, e.g.:
@@ -120,18 +110,105 @@ processed = process_voice(samples)
 - **API Tokens:** Store securely in environment variables.
 - **Logging:** Processed logs saved as JSON (e.g., `processed_accounts.json`).
 
-## File Structure
+## Project Structure
 
-- `snapshot_manager.py`: Manages Bright Data snapshots.
-- `step1_validate_accounts.py`: Account validation.
-- `step2_bright_data_trigger.py`: Snapshot triggering.
-- `step3_bright_data_download.py`: Data downloading.
-- `step4_audio_filter.py`: Audio platform filtering.
-- `step4_5_audio_detector.py`: Audio detection.
-- `step5_voice_verification.py`: Voice verification.
-- `step6_voice_sample_extractor.py`: Sample extraction.
-- `step7_advanced_voice_processor.py`: Voice processing.
-- Utilities: `checker_web.py` (web checker), `io_utils.py` (I/O helpers), `username_utils.py` (username handling).
+```
+x-audio-content-pipeline/
+├── 📁 Core Pipeline Files
+│   ├── main_pipeline.py                    # 🎯 Main orchestrator with all 7 stages
+│   ├── config.py                          # ⚙️ Configuration settings
+│   ├── config_example.py                  # 📋 Configuration template
+│   ├── config.json                        # 🔧 Additional JSON configuration
+│   └── requirements.txt                   # 📦 Python dependencies
+│
+├── 📁 Pipeline Stages
+│   ├── step1_validate_accounts.py         # ✅ Stage 1: Account validation
+│   ├── step2_bright_data_trigger.py       # 🚀 Stage 2: Snapshot management
+│   ├── step3_bright_data_download.py      # ⬇️ Stage 3: Data download
+│   ├── step3_5_youtube_twitch_runner.py   # 🔍 Stage 3.5: Channel discovery
+│   ├── step4_audio_filter.py              # 🎯 Stage 4: Audio platform filter
+│   ├── step5_voice_detector.py            # 🎵 Stage 5: Voice detection
+│   ├── step6_voice_sample_extractor.py    # 🎤 Stage 6: Sample extraction
+│   └── step7_advanced_voice_processor.py  # 🤖 Stage 7: Whisper processing
+│
+├── 📁 Utilities
+│   ├── utils/
+│   │   ├── __init__.py                    # Package initialization
+│   │   ├── checker_web.py                 # 🌐 Web validation utilities
+│   │   ├── io_utils.py                    # 📂 I/O helper functions
+│   │   └── username_utils.py              # 👤 Username processing
+│   ├── snapshot_manager.py                # 📊 Snapshot lifecycle management
+│   ├── audio_from_youtube.py              # 🎵 YouTube audio utilities
+│   └── split_chunks.py                    # ✂️ Audio chunking utilities
+│
+├── 📁 External Scraper
+│   └── youtube-twitch-x-scraper/          # 🔍 Enhanced channel discovery
+│       ├── youtube_twitch_scraper.py      # Main scraper implementation
+│       ├── enhanced_matching.py           # Advanced matching algorithms
+│       ├── config.py                      # Scraper configuration
+│       ├── requirements.txt               # Scraper dependencies
+│       ├── proxy/                         # Proxy configuration
+│       └── README.md                      # Scraper documentation
+│
+├── 📁 Input/Output
+│   ├── input/                             # 📥 Input files directory
+│   │   ├── merged_user_all_usernames.csv  # Combined username datasets
+│   │   ├── merged_user_mbti.csv           # MBTI personality data
+│   │   └── users_twitter.csv              # Twitter user data
+│   ├── output/                            # 📤 Pipeline output directory
+│   │   ├── snapshots/                     # 📊 Snapshot metadata
+│   │   ├── voice_samples/                 # 🎤 Extracted MP3 files
+│   │   ├── processed_accounts.json        # 📋 Account validation log
+│   │   ├── 1_existing_accounts.csv        # ✅ Stage 1 output
+│   │   ├── 2_snapshot_*_results.csv       # 📊 Stage 2-3 output
+│   │   ├── 3_snapshot_*_external_links.csv # 🔗 Stage 3 output
+│   │   ├── 4_*_audio_links.csv            # 🎯 Stage 4 output
+│   │   ├── 5_*_audio_detected.csv         # 🎵 Stage 5 output
+│   │   ├── 6_voice_samples_results.csv    # 🎤 Stage 6 output
+│   │   └── 7_whisper_results.csv          # 📝 Stage 7 output
+│   └── output_audio2/                     # 🎵 Alternative audio output
+│
+├── 📁 Configuration & Samples
+│   └── sample_usernames.csv               # 📋 Example input file
+│
+└── 📁 Development
+    ├── .gitignore                         # 🚫 Git ignore rules
+    ├── .venv/                             # 🐍 Python virtual environment
+    ├── __pycache__/                       # 🗂️ Python cache files
+    └── README.md                          # 📖 This documentation
+```
+
+### Key Components
+
+#### 🎯 Main Pipeline (`main_pipeline.py`)
+- **Full Pipeline:** Complete 7-stage execution with timing
+- **Individual Stages:** Run any stage independently
+- **Timing Measurement:** Comprehensive execution time tracking
+- **Error Handling:** Robust error management and recovery
+- **CLI Interface:** Rich command-line interface with help
+
+#### 🤖 Whisper Integration
+- **Stage 7:** Advanced Whisper analysis with transcription
+- **Features:** Voice activity detection, overlap detection, transcription generation
+- **Output:** Clean WAV files + detailed transcription metadata
+
+#### 📊 Data Flow
+```
+Input CSV → Stage 1 → Stage 2 → Stage 3 → (Stage 3.5) → Stage 4 → Stage 5 → Stage 6 → Stage 7
+    ↓           ↓         ↓         ↓           ↓            ↓         ↓         ↓           ↓
+Usernames → Accounts → Snapshots → Links → Enhanced → Audio → Voice → MP3 → WAV+Whisper → Transcripts
+```
+
+#### 🔧 Configuration Files
+- **`config.py`:** Main configuration (API tokens, settings)
+- **`config_example.py`:** Template for new setups
+- **`config.json`:** Additional JSON-based configuration
+
+#### 📦 Dependencies
+- **Core:** pandas, requests, asyncio, aiohttp
+- **Audio:** yt-dlp, ffmpeg-python, pydub
+- **AI:** openai-whisper, torch, transformers
+- **Web:** playwright, beautifulsoup4, selenium
 
 ## Troubleshooting
 
