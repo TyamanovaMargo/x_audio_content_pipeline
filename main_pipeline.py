@@ -1,6 +1,6 @@
+#!/usr/bin/env python3
 import os
 import time
-import pandas as pd
 import argparse
 import sys
 
@@ -12,6 +12,7 @@ from step3_5_youtube_twitch_runner import Step3_5_YouTubeTwitchRunner
 from step4_audio_filter import AudioContentFilter
 from step5_voice_sample_extractor import AudioDownloader, save_results
 from step6_voice_detector_advance import AdvancedVoiceDetector
+from step7_final_merger import FinalResultsMerger
 from snapshot_manager import SnapshotManager
 
 def main(input_file, force_recheck=False):
@@ -26,7 +27,7 @@ def main(input_file, force_recheck=False):
     print("🎯 Focus: YouTube, Twitch, and TikTok voice content extraction")
     print("🤖 AI Model: OpenAI Whisper for speech recognition and overlap detection")
     print("🎤 Pipeline: MP3 → WAV conversion → Whisper Processing → Transcription")
-    print("🔍 Stages: 6 comprehensive processing stages (1→2→3→4→5→6)")
+    print("🔍 Stages: 7 comprehensive processing stages (1→2→3→4→5→6→7)")
     print("🔄 Audio Flow: Stage 5 (MP3) → Stage 6 (WAV+Transcripts)")
 
     # Stage 1: Account Validation
@@ -256,6 +257,21 @@ def main(input_file, force_recheck=False):
 
     else:
         print("\n⏭️ Skipping Stage 6 - no clean WAV chunks available")
+
+    # Stage 7: Final Merger
+    print("\n📈 STAGE 7: Final Merger")
+    print("-" * 60)
+    stage_start = time.time()
+
+    merger = FinalResultsMerger(cfg.OUTPUT_DIR)
+    merged_file = merger.merge_results(input_file)
+    if merged_file:
+        print(f"✅ Stage 7 completed!")
+        print(f"📈 Merged results saved to: {merged_file}")
+    else:
+        print("❌ Stage 7 failed - no merged results")
+
+    print(f"⏱️ Stage 7 completed in {time.time() - stage_start:.2f} seconds")
 
     total_time = time.time() - pipeline_start
     print("\n🎉 WHISPER ENHANCED PIPELINE COMPLETED SUCCESSFULLY!")
@@ -539,7 +555,7 @@ def show_help():
 🤖 WHISPER ENHANCED YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE
 
 PIPELINE FLOW:
-1→2→3→4→5→6
+1→2→3→4→5→6→7
 
 INDIVIDUAL STAGES:
 --stage1-only FILE         Stage 1: Account Validation
@@ -549,6 +565,7 @@ INDIVIDUAL STAGES:
 --stage4-only FILE         Stage 4: YouTube/Twitch Filter
 --stage5-only FILE         Stage 5: Voice Sample Extraction (MP3 Output)
 --stage6-only DIR          Stage 6: Advanced Voice Detection + Transcription
+--stage7-only FILE         Stage 7: Final Merger
 
 🤖 WHISPER ENHANCEMENTS:
 - Stage 6: Advanced Voice Detection using Whisper, Pyannote VAD, and SpeechBrain
@@ -588,6 +605,7 @@ if __name__ == "__main__":
     parser.add_argument("--stage4-only", help="Run only Stage 4 - YouTube/Twitch filter")
     parser.add_argument("--stage5-only", help="Run only Stage 5 - Voice sample extraction (MP3)")
     parser.add_argument("--stage6-only", help="Run only Stage 6 - Advanced Whisper analysis + transcription")
+    parser.add_argument("--stage7-only", help="Run only Stage 7 - Final Merger")
 
     # Information commands
     parser.add_argument("--show-log", action="store_true", help="Show account validation log")
@@ -647,6 +665,24 @@ if __name__ == "__main__":
         run_stage6_only(args.stage6_only)
         sys.exit(0)
 
+    if args.stage7_only:
+        if not os.path.exists(args.stage7_only):
+            print(f"❌ Input file not found: {args.stage7_only}")
+            sys.exit(1)
+        
+        print("📈 STAGE 7: Final Merger")
+        print("-" * 60)
+        
+        cfg = Config()
+        merger = FinalResultsMerger(cfg.OUTPUT_DIR)
+        merged_file = merger.merge_results(args.stage7_only)
+        if merged_file:
+            print(f"✅ Stage 7 completed!")
+            print(f"📈 Merged results saved to: {merged_file}")
+        else:
+            print("❌ Stage 7 failed - no merged results")
+        sys.exit(0)
+
     if args.show_log:
         try:
             validator = AccountValidator()
@@ -678,7 +714,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         try:
-            print(f"🚀 Starting Whisper enhanced 6-stage pipeline")
+            print(f"🚀 Starting Whisper enhanced 7-stage pipeline")
             print(f"🤖 AI Model: OpenAI Whisper for speech processing and transcription")
             print(f"🔄 Force recheck: {'Yes' if args.force_recheck else 'No (using cache)'}")
             print(f"🎵 Audio flow: Stage 5 (MP3) → Stage 6 (WAV+Transcripts)")
@@ -698,7 +734,7 @@ if __name__ == "__main__":
         print("\n🎯 Quick start examples:")
         print(" python main_pipeline.py --input usernames.csv")
         print(" python main_pipeline.py --stage6-only output/voice_samples/")
-        print("\n🔄 Pipeline: 1→2→3→4→5→6")
+        print("\n🔄 Pipeline: 1→2→3→4→5→6→7")
         print("🤖 Enhanced: OpenAI Whisper speech processing and transcription in stages 6")
         print("🎵 Audio format flow: MP3 (Stage 5) → WAV + Whisper (Stage 6)")
         sys.exit(1)
