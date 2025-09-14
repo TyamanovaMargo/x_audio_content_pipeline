@@ -105,6 +105,7 @@ class AdvancedVoiceDetector:
             # Load audio
             try:
                 audio = AudioSegment.from_file(file_path)
+                audio = audio.set_frame_rate(16000).set_channels(1)
                 if len(audio) < 1000:  # Less than 1 second
                     result['error'] = 'Audio too short'
                     return result
