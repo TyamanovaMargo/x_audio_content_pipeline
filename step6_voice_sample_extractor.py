@@ -15,6 +15,7 @@ import logging
 import argparse
 import sys
 from typing import List, Dict
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,11 +34,15 @@ class AudioDownloader:
         os.makedirs(output_dir, exist_ok=True)
 
     def load_links(self, filepath: str) -> List[Dict]:
+        start_time = datetime.now()
         df = pd.read_csv(filepath)
+        end_time = datetime.now()
+        logger.info(f"Loaded links in {end_time - start_time}")
         return df.to_dict('records')
 
     def download_audio_for_all(self, links: List[Dict]) -> List[Dict]:
         """Download audio for all links and return results for pipeline integration"""
+        start_time = datetime.now()
         results = []
         
         for info in links:
@@ -57,10 +62,13 @@ class AudioDownloader:
                 })
                 results.append(result)
                 
+        end_time = datetime.now()
+        logger.info(f"Processed all links in {end_time - start_time}")
         return results
 
     def process_link(self, url: str, username: str) -> Dict:
         """Process a single link - ТОЛЬКО чанки, максимум 2 чанка по 30 минут"""
+        start_time = datetime.now()
         platform = self.determine_platform(url)
         
         if platform == 'twitch':
@@ -112,6 +120,8 @@ class AudioDownloader:
                 logger.warning(f"Failed to download chunk {i+1}/{num_chunks}")
 
         if chunk_results:
+            end_time = datetime.now()
+            logger.info(f"Processed link in {end_time - start_time}")
             return {
                 'username': username,
                 'platform': platform,
@@ -124,16 +134,26 @@ class AudioDownloader:
         return None
 
     def determine_platform(self, url: str) -> str:
+        start_time = datetime.now()
         if 'twitch.tv' in url:
+            end_time = datetime.now()
+            logger.info(f"Determined platform in {end_time - start_time}")
             return 'twitch'
         elif 'youtube.com' in url or 'youtu.be' in url:
+            end_time = datetime.now()
+            logger.info(f"Determined platform in {end_time - start_time}")
             return 'youtube'
         elif 'tiktok.com' in url:
+            end_time = datetime.now()
+            logger.info(f"Determined platform in {end_time - start_time}")
             return 'tiktok'
         else:
+            end_time = datetime.now()
+            logger.info(f"Determined platform in {end_time - start_time}")
             return 'unknown'
 
     def get_latest_video_url_and_duration(self, channel_url: str):
+        start_time = datetime.now()
         cmd = [
             'yt-dlp',
             '--quiet',
@@ -148,12 +168,16 @@ class AudioDownloader:
             info = json.loads(output.strip().split('\n')[0])
             video_url = info.get('webpage_url') or info.get('url')
             duration = info.get('duration', 0)
+            end_time = datetime.now()
+            logger.info(f"Fetched latest video info in {end_time - start_time}")
             return video_url, duration
         except Exception as e:
-            logger.error(f"Failed to fetch latest video info: {e}")
+            end_time = datetime.now()
+            logger.error(f"Failed to fetch latest video info in {end_time - start_time}: {e}")
             return None, 0
 
     def get_latest_twitch_vod_url_and_duration(self, channel_url: str):
+        start_time = datetime.now()
         videos_url = channel_url.rstrip('/') + '/videos'
         
         cmd = [
@@ -171,13 +195,17 @@ class AudioDownloader:
             if info:
                 video_url = info.get('webpage_url') or info.get('url')
                 duration = info.get('duration', 0)
+                end_time = datetime.now()
+                logger.info(f"Fetched latest Twitch VOD info in {end_time - start_time}")
                 return video_url, duration
             return None, 0
         except Exception as e:
-            logger.error(f"Failed to fetch latest Twitch VOD info: {e}")
+            end_time = datetime.now()
+            logger.error(f"Failed to fetch latest Twitch VOD info in {end_time - start_time}: {e}")
             return None, 0
 
     def download_audio_chunk(self, video_url: str, output_path: str, start_sec: int, duration_sec: int) -> bool:
+        start_time = datetime.now()
         try:
             cmd = [
                 'yt-dlp',
@@ -195,22 +223,30 @@ class AudioDownloader:
             subprocess.check_call(cmd)
 
             if os.path.exists(output_path) and os.path.getsize(output_path) > 50000:
+                end_time = datetime.now()
+                logger.info(f"Downloaded audio chunk in {end_time - start_time}")
                 return True
             else:
-                logger.warning(f"Downloaded file too small or missing: {output_path}")
+                end_time = datetime.now()
+                logger.warning(f"Downloaded file too small or missing in {end_time - start_time}: {output_path}")
                 return False
         except Exception as e:
-            logger.error(f"Failed to download audio chunk: {e}")
+            end_time = datetime.now()
+            logger.error(f"Failed to download audio chunk in {end_time - start_time}: {e}")
             return False
 
     def sanitize_filename(self, filename: str) -> str:
+        start_time = datetime.now()
         filename = re.sub(r'[^\w\s-]', '', filename).strip().lower()
         filename = re.sub(r'[-\s]+', '_', filename)
+        end_time = datetime.now()
+        logger.info(f"Sanitized filename in {end_time - start_time}")
         return filename
 
 
 def save_results(results: List[Dict], output_file: str):
     """Save processing results to CSV file"""
+    start_time = datetime.now()
     if not results:
         logger.warning("No results to save")
         return
@@ -256,7 +292,8 @@ def save_results(results: List[Dict], output_file: str):
     
     df = pd.DataFrame(flattened_results)
     df.to_csv(output_file, index=False)
-    logger.info(f"Results saved to: {output_file}")
+    end_time = datetime.now()
+    logger.info(f"Results saved to {output_file} in {end_time - start_time}")
 
 
 def main():

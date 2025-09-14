@@ -55,6 +55,8 @@ pip install -r requirements.txt
   BRIGHT_DATA_TOKEN=your_api_token
   BRIGHT_DATA_DATASET_ID=your_dataset_id
   ```
+ 5. config.json and config.py ( put your token in both files )
+
 
 ## Usage
 

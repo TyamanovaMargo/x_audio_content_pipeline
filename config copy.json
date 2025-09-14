@@ -1,0 +1,48 @@
+{
+  "huggingface_token": "your_huggingface_token",
+  "output_dir": "processed_audio",
+  "device": "auto",
+  "min_segment_length": 1.0,
+  "chunking": {
+    "enabled": true,
+    "duration_minutes": 10,
+    "max_duration_minutes": 10
+  },
+  "speechbrain": {
+    "model_source": "speechbrain/spkrec-ecapa-voxceleb",
+    "similarity_threshold": 0.75,
+    "identification_method": "diarization"
+  },
+  "pyannote": {
+    "diarization_model": "pyannote/speaker-diarization-3.1",
+    "vad_model": "pyannote/voice-activity-detection"
+  },
+  "whisper": {
+    "model_size": "base",
+    "enable_enhancement": true
+  },
+  "processing": {
+    "overlap_threshold": 0.5,
+    "min_voice_duration": 0.5
+  },
+  "audio_cleaning": {
+    "enable_music_removal": true,
+    "enable_noise_reduction": true,
+    "music_removal_method": "demucs"
+  },
+  "platform_timeouts": {
+    "tiktok": 5,
+    "youtube": 10,
+    "twitch": 10
+  },
+  "tiktok_api_hostname": "api22-normal-c-useast2a.tiktokv.com",
+  "audio_analysis": {
+    "audio_analysis_enabled": true,
+    "force_audio_analysis": true,
+    "audio_sample_duration": 30,
+    "voice_threshold": 0.5,
+    "smart_extraction": true
+  }
+}
+
+
