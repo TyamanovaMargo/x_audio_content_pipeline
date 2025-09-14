@@ -9,9 +9,8 @@ from step2_bright_data_trigger import BrightDataTrigger
 from step3_bright_data_download import BrightDataDownloader
 from step3_5_youtube_twitch_runner import Step3_5_YouTubeTwitchRunner
 from step4_audio_filter import AudioContentFilter
-from step5_voice_detector import MetadataVoiceDetector as AudioContentDetector
-from step6_voice_sample_extractor import AudioDownloader, save_results
-from step7_overlap_detector import PyannoteWhisperProcessor # Updated import
+from step5_voice_sample_extractor import AudioDownloader, save_results
+from step6_voice_detector_advance import AdvancedVoiceDetector # Updated import
 from snapshot_manager import SnapshotManager
 
 def main(input_file, force_recheck=False):
@@ -24,8 +23,8 @@ def main(input_file, force_recheck=False):
     print("🎯 Focus: YouTube, Twitch, and TikTok voice content extraction")
     print("🤖 AI Model: OpenAI Whisper for speech recognition and overlap detection")
     print("🎤 Pipeline: MP3 → WAV conversion → Whisper Processing → Transcription")
-    print("🔍 Stages: 7 comprehensive processing stages (1→2→3→4→5→6→6.5→7)")
-    print("🔄 Audio Flow: Stage 6 (MP3) → Stage 7 (WAV+Transcripts)")
+    print("🔍 Stages: 6 comprehensive processing stages (1→2→3→4→5→6)")
+    print("🔄 Audio Flow: Stage 5 (MP3) → Stage 6 (WAV+Transcripts)")
 
     # Stage 1: Account Validation with Persistent Logging
     print("\n✅ STAGE 1: Account Validation with Persistent Logging")
@@ -35,7 +34,7 @@ def main(input_file, force_recheck=False):
         max_concurrent=cfg.MAX_CONCURRENT_VALIDATIONS,
         delay_min=cfg.VALIDATION_DELAY_MIN,
         delay_max=cfg.VALIDATION_DELAY_MAX,
-        log_file=log_file
+    log_file=log_file
     )
     
     existing_accounts_file = os.path.join(cfg.OUTPUT_DIR, "1_existing_accounts.csv")
@@ -139,45 +138,11 @@ def main(input_file, force_recheck=False):
     for platform, count in platform_counts.items():
         print(f"  {platform}: {count}")
 
-    # Stage 5: YouTube, Twitch & TikTok Audio Content Detection
-    print("\n🎵 STAGE 5: YouTube, Twitch & TikTok Audio Content Detection")
+    # Stage 5: Voice Sample Extraction (Outputs MP3 files)
+    print("\n🎤 STAGE 5: Voice Sample Extraction (MP3 Output)")
     print("-" * 60)
-    audio_detector = AudioContentDetector("config.json")
-
+    confirmed_voice = audio_links  # Use audio_links directly, skipping step 5
     
-    audio_detected_links = audio_detector.detect_audio_content(audio_links)
-    if not audio_detected_links:
-        print("🔍 No audio content detected in YouTube/Twitch links")
-        print("⚠️ Pipeline completed but no actual audio found")
-        return
-    
-    audio_detected_file = os.path.join(cfg.OUTPUT_DIR, f"5_snapshot_{snapshot_id}_audio_detected.csv")
-    pd.DataFrame(audio_detected_links).to_csv(audio_detected_file, index=False)
-    print(f"🎵 Found {len(audio_detected_links)} links with actual audio content!")
-    print(f"📁 Saved to: {audio_detected_file}")
-    
-    # Audio content analysis
-    audio_types = {}
-    confidence_levels = {}
-    for link in audio_detected_links:
-        audio_type = link.get('audio_type', 'unknown')
-        confidence = link.get('audio_confidence', 'unknown')
-        audio_types[audio_type] = audio_types.get(audio_type, 0) + 1
-        confidence_levels[confidence] = confidence_levels.get(confidence, 0) + 1
-    
-    print("\n📊 Audio Content Breakdown:")
-    print("  Audio Types:")
-    for audio_type, count in sorted(audio_types.items(), key=lambda x: x[1], reverse=True):
-        print(f"    {audio_type}: {count}")
-    print("  Confidence Levels:")
-    for confidence, count in confidence_levels.items():
-        print(f"    {confidence}: {count}")
-    
-    confirmed_voice = audio_detected_links
-
-    # Stage 6: Voice Sample Extraction (Outputs MP3 files)
-    print("\n🎤 STAGE 6: Voice Sample Extraction (MP3 Output)")
-    print("-" * 60)
     if confirmed_voice:
         sample_extractor = AudioDownloader(
             output_dir=os.path.join(cfg.OUTPUT_DIR, "voice_samples")
@@ -185,7 +150,7 @@ def main(input_file, force_recheck=False):
         
         extracted_samples = sample_extractor.download_audio_for_all(confirmed_voice)
         if extracted_samples:
-            extraction_file = os.path.join(cfg.OUTPUT_DIR, f"6_snapshot_{snapshot_id}_voice_samples.csv")
+            extraction_file = os.path.join(cfg.OUTPUT_DIR, f"5_snapshot_{snapshot_id}_voice_samples.csv")
             save_results(extracted_samples, extraction_file)
             print(f"📁 Saved extraction results to: {extraction_file}")
             print(f"✅ Successfully processed {len(extracted_samples)} voice samples")
@@ -213,28 +178,37 @@ def main(input_file, force_recheck=False):
         print("⏭️ Skipping voice sample extraction - no confirmed voice content")
         extracted_samples = []
 
-    # Stage 7: Advanced Whisper Processing (Enhanced transcription and analysis)
+    # Stage 6: Advanced Voice Detection (Enhanced voice analysis)
     if extracted_samples:
-        print("\n🤖 STAGE 7: Advanced Whisper Processing (Enhanced Analysis)")
+        print("\n🎤 STAGE 6: Advanced Voice Detection (Enhanced Analysis)")
         print("-" * 60)
-        print("🤖 Processing clean WAV chunks with advanced Whisper analysis")
-        print("📝 Generating detailed transcriptions and voice profiles")
+        print("🎤 Processing audio files with advanced voice detection")
+        print("📝 Using Whisper, Pyannote VAD, and SpeechBrain for comprehensive analysis")
         
         try:
-            advanced_processor = PyannoteWhisperProcessor(
-                output_dir=os.path.join(cfg.OUTPUT_DIR, "stage7_processed"),
-                chunk_duration_minutes=5,
+            cfg = Config()
+            advanced_processor = AdvancedVoiceDetector(
+                output_dir=os.path.join(cfg.OUTPUT_DIR, "stage6_processed"),
+                threshold=0.5,
+                min_duration=5.0,
                 huggingface_token=cfg.HUGGINGFACE_TOKEN
             )
             
-            clean_audio_dir = os.path.join(cfg.OUTPUT_DIR, "voice_samples")
-            wav_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.wav')]
-            print(f"📁 Processing {len(wav_files)} clean WAV files from: {clean_audio_dir}")
+            wav_files = [f for f in os.listdir(sample_extractor.output_dir) if f.endswith('.wav')]
+            mp3_files = [f for f in os.listdir(sample_extractor.output_dir) if f.endswith('.mp3')]
+            
+            if not wav_files and not mp3_files:
+                print(f"❌ No audio files (WAV/MP3) found in: {sample_extractor.output_dir}")
+                return
+                
+            print(f"📁 Found {len(wav_files)} WAV files and {len(mp3_files)} MP3 files")
             
             all_results = []
+            
+            # Process WAV files directly
             for wav_file in wav_files:
-                wav_path = os.path.join(clean_audio_dir, wav_file)
-                print(f"🎵 Processing: {wav_file}")
+                wav_path = os.path.join(sample_extractor.output_dir, wav_file)
+                print(f"🎵 Processing WAV: {wav_file}")
                 try:
                     results = advanced_processor.process_audio_file(wav_path)
                     all_results.extend(results)
@@ -242,15 +216,26 @@ def main(input_file, force_recheck=False):
                     print(f"⚠️ Error processing {wav_file}: {e}")
                     continue
             
+            # Process MP3 files (they'll be converted to WAV internally)
+            for mp3_file in mp3_files:
+                mp3_path = os.path.join(sample_extractor.output_dir, mp3_file)
+                print(f"🎵 Processing MP3: {mp3_file}")
+                try:
+                    results = advanced_processor.process_audio_file(mp3_path)
+                    all_results.extend(results)
+                except Exception as e:
+                    print(f"⚠️ Error processing {mp3_file}: {e}")
+                    continue
+            
             processed_results = all_results
             
             if processed_results:
-                print(f"✅ Stage 7 Whisper advanced processing completed!")
-                print(f"🤖 Successfully processed: {len(processed_results)} WAV files")
+                print(f"✅ Stage 6 completed!")
+                print(f"🤖 Successfully processed: {len(processed_results)} audio files")
                 print(f"📁 Output directory: {advanced_processor.output_dir}")
                 
                 # Save enhanced results with transcriptions
-                results_file = os.path.join(cfg.OUTPUT_DIR, f"7_whisper_results_{snapshot_id}.csv")
+                results_file = os.path.join(cfg.OUTPUT_DIR, f"6_voice_detection_results_{snapshot_id}.csv")
                 enhanced_results = []
                 
                 for result in processed_results:
@@ -269,7 +254,7 @@ def main(input_file, force_recheck=False):
                         'total_chunks': result.get('total_chunks', 1),
                         'processed_username': result.get('processed_username', 'unknown'),
                         'platform_source': result.get('platform_source', 'unknown'),
-                        'input_format': 'WAV',
+                        'input_format': 'Audio',
                         'output_format': 'WAV + Transcription',
                         'model_used': 'OpenAI-Whisper-Base'
                     })
@@ -277,7 +262,7 @@ def main(input_file, force_recheck=False):
                 pd.DataFrame(enhanced_results).to_csv(results_file, index=False)
                 print(f"📊 Enhanced processing results saved: {results_file}")
                 
-                print(f"\n🎤 Sample Whisper Advanced Processing Results:")
+                print(f"\n🎤 Sample Voice Detection Results:")
                 for i, result in enumerate(processed_results[:3], 1):
                     input_file = os.path.basename(result.get('clean_chunk_file', 'unknown'))
                     transcription = result.get('transcription', '')[:80] + "..." if result.get('transcription') else 'N/A'
@@ -290,20 +275,20 @@ def main(input_file, force_recheck=False):
                     print(f"     Model: OpenAI-Whisper-Base | Format: WAV + Transcript")
                 
                 print(f"\n🔄 Complete Audio Processing Pipeline Summary:")
-                print(f"  📥 Stage 6 Output: MP3 files ({len(extracted_samples)} samples)")
-                print(f"  🤖 Stage 7 Processing: Advanced Whisper analysis + transcription")
-                print(f"  📤 Stage 7 Output: Enhanced WAV + transcripts ({len(processed_results)} files)")
+                print(f"  📥 Stage 5 Output: MP3 files ({len(extracted_samples)} samples)")
+                print(f"  🤖 Stage 6 Processing: Advanced Voice Detection")
+                print(f"  📤 Stage 6 Output: Enhanced WAV + transcripts ({len(processed_results)} files)")
                 print(f"  🎯 AI Model: OpenAI Whisper throughout pipeline")
             else:
-                print("❌ Stage 7 Whisper advanced processing failed - no results returned")
+                print("❌ Stage 6 Voice Detection failed - no results returned")
                 processed_results = []
                 
         except Exception as e:
-            print(f"❌ Stage 7 Whisper advanced processing failed: {e}")
-            print(f"💡 Check that WAV files exist in: {clean_audio_dir}")
+            print(f"❌ Stage 6 Voice Detection failed: {e}")
+            print(f"💡 Check that WAV files exist in: {sample_extractor.output_dir}")
             processed_results = []
     else:
-        print("\n⏭️ Skipping Stage 7 - no clean WAV chunks available")
+        print("\n⏭️ Skipping Stage 6 - no clean WAV chunks available")
         processed_results = []
 
     # Final comprehensive summary
@@ -322,9 +307,9 @@ def main(input_file, force_recheck=False):
     print(f"📈 Voice confirmation rate: {voice_confirmation_rate:.1f}%")
     print(f"🆔 Snapshot ID: {snapshot_id}")
     print(f"📁 Results saved in: {cfg.OUTPUT_DIR}")
-    print(f"🔄 Pipeline order: 1 → 2 → 3 → 4 → 5 → 6 → 7")
-    print(f"🤖 AI Enhancement: OpenAI Whisper integration in stages 7")
-    print(f"🎵 Audio format flow: MP3 (Stage 6) → WAV + Whisper (Stage 7)")
+    print(f"🔄 Pipeline order: 1 → 2 → 3 → 4 → 5 → 6")
+    print(f"🤖 AI Enhancement: OpenAI Whisper integration in stages 6")
+    print(f"🎵 Audio format flow: MP3 (Stage 5) → WAV + Whisper (Stage 6)")
 
     # Final output files summary
     print(f"\n📄 Output Files Generated:")
@@ -344,188 +329,6 @@ def main(input_file, force_recheck=False):
 
 
 # Individual Stage Runner Functions
-def run_stage6_5_only(input_path, output_dir="output"):
-    """Run only Stage 6.5: Whisper Audio Processing and Overlap Detection"""
-    print("🤖 STAGE 6.5 ONLY: Whisper Audio Processing and Overlap Detection")
-    print("=" * 60)
-    
-    if os.path.isdir(input_path):
-        print(f"📁 Processing audio files from directory: {input_path}")
-        cfg = Config()
-        whisper_overlap_detector = PyannoteWhisperProcessor(
-            output_dir=os.path.join(output_dir, "clean_chunks"),
-            chunk_duration_minutes=5,
-            huggingface_token=cfg.HUGGINGFACE_TOKEN
-        )
-        
-        # Process the voice samples directory directly
-        voice_samples_dir = input_path
-        
-        # Get all audio files from the directory
-        audio_files = []
-        for ext in ['.mp3', '.wav', '.m4a', '.flac']:
-            audio_files.extend([f for f in os.listdir(voice_samples_dir) if f.lower().endswith(ext)])
-        
-        print(f"📁 Found {len(audio_files)} audio files to process")
-        
-        all_results = []
-        for audio_file in audio_files:
-            audio_path = os.path.join(voice_samples_dir, audio_file)
-            print(f"🎵 Processing: {audio_file}")
-            try:
-                results = whisper_overlap_detector.process_audio_file(audio_path)
-                all_results.extend(results)
-            except Exception as e:
-                print(f"⚠️ Error processing {audio_file}: {e}")
-                continue
-        
-        clean_chunks = all_results
-        
-        if clean_chunks:
-            import time
-            timestamp = int(time.time())
-            clean_chunks_file = os.path.join(output_dir, f"6_5_whisper_audio_dir_{timestamp}_clean_chunks.csv")
-            pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
-            print(f"✅ Stage 6.5 completed!")
-            print(f"🤖 Whisper processing successful")
-            print(f"🔍 Clean chunks created: {len(clean_chunks)}")
-            print(f"📁 Clean chunks directory: {whisper_overlap_detector.output_dir}")
-            print(f"📊 Results CSV: {clean_chunks_file}")
-            print(f"💡 Next: Run Stage 7 with --stage7-only {whisper_overlap_detector.output_dir}")
-            
-            # Show sample transcriptions
-            print(f"\n📝 Sample Whisper Transcriptions:")
-            for i, chunk in enumerate(clean_chunks[:3], 1):
-                transcription = chunk.get('transcription', '')[:100] + "..." if chunk.get('transcription') else 'N/A'
-                voice_pct = chunk.get('voice_percentage', 0)
-                print(f"  {i}. Voice: {voice_pct:.1f}% | Text: {transcription}")
-        else:
-            print("❌ No clean chunks found")
-    
-    else:
-        if not os.path.exists(input_path):
-            print(f"❌ Input file/directory not found: {input_path}")
-            return
-        
-        try:
-            df = pd.read_csv(input_path)
-            extracted_samples = df.to_dict('records')
-            print(f"📥 Loaded {len(extracted_samples)} extracted samples from CSV: {input_path}")
-            
-            cfg = Config()
-            whisper_overlap_detector = PyannoteWhisperProcessor(
-                output_dir=os.path.join(output_dir, "clean_chunks"),
-                chunk_duration_minutes=5,
-                huggingface_token=cfg.HUGGINGFACE_TOKEN
-            )
-            
-            clean_chunks = whisper_overlap_detector.process_extracted_samples(extracted_samples)
-            if clean_chunks:
-                base_name = os.path.splitext(os.path.basename(input_path))[0]
-                clean_chunks_file = os.path.join(output_dir, f"6_5_whisper_{base_name}_clean_chunks.csv")
-                pd.DataFrame(clean_chunks).to_csv(clean_chunks_file, index=False)
-                print(f"✅ Stage 6.5 completed!")
-                print(f"🤖 Whisper processing successful")
-                print(f"🔍 Clean chunks created: {len(clean_chunks)}")
-                print(f"📁 Clean chunks directory: {whisper_overlap_detector.output_dir}")
-                print(f"📊 Results CSV: {clean_chunks_file}")
-                print(f"💡 Next: Run Stage 7 with --stage7-only {whisper_overlap_detector.output_dir}")
-            else:
-                print("❌ No clean chunks found")
-        except Exception as e:
-            print(f"❌ Error processing input: {e}")
-
-
-def run_stage7_only(voice_samples_dir, output_dir="stage7_output"):
-    """Run only Stage 7: Advanced Whisper Processing (Enhanced Analysis)"""
-    print("🤖 STAGE 7 ONLY: Advanced Whisper Processing (Enhanced Analysis)")
-    print("=" * 60)
-    
-    cfg = Config()
-    if not os.path.exists(voice_samples_dir):
-        print(f"❌ Voice samples directory not found: {voice_samples_dir}")
-        return
-    
-    wav_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.wav')]
-    mp3_files = [f for f in os.listdir(voice_samples_dir) if f.endswith('.mp3')]
-    
-    if not wav_files and not mp3_files:
-        print(f"❌ No audio files (WAV/MP3) found in: {voice_samples_dir}")
-        return
-    
-    print(f"📥 Found {len(wav_files)} WAV files and {len(mp3_files)} MP3 files to process")
-    print(f"🤖 Using OpenAI Whisper for advanced speech analysis and transcription")
-    
-    if mp3_files:
-        print("🔄 MP3 files will be converted to WAV for Whisper processing")
-    
-    try:
-        advanced_processor = PyannoteWhisperProcessor(
-            output_dir=output_dir,
-            chunk_duration_minutes=5,
-            huggingface_token=cfg.HUGGINGFACE_TOKEN
-        )
-        
-        clean_audio_dir = voice_samples_dir
-        wav_files = [f for f in os.listdir(clean_audio_dir) if f.endswith('.wav')]
-        print(f"📁 Processing {len(wav_files)} clean WAV files from: {clean_audio_dir}")
-        
-        all_results = []
-        for wav_file in wav_files:
-            wav_path = os.path.join(clean_audio_dir, wav_file)
-            print(f"🎵 Processing: {wav_file}")
-            try:
-                results = advanced_processor.process_audio_file(wav_path)
-                all_results.extend(results)
-            except Exception as e:
-                print(f"⚠️ Error processing {wav_file}: {e}")
-                continue
-        
-        processed_results = all_results
-        
-        if processed_results:
-            print(f"✅ Stage 7 Whisper advanced processing completed!")
-            print(f"🤖 Successfully processed: {len(processed_results)} files")
-            print(f"📁 Output directory: {advanced_processor.output_dir}")
-            
-            # Save enhanced results with transcriptions
-            results_file = os.path.join(output_dir, "whisper_enhanced_results.csv")
-            enhanced_results = []
-            
-            for result in processed_results:
-                enhanced_results.append({
-                    'input_file': result.get('clean_chunk_file', ''),
-                    'transcription': result.get('transcription', ''),
-                    'voice_percentage': result.get('voice_percentage', 0),
-                    'overlap_percentage': result.get('overlap_percentage', 0),
-                    'word_count': result.get('word_count', 0),
-                    'char_count': result.get('char_count', 0),
-                    'avg_confidence': result.get('avg_confidence', 0),
-                    'speakers_detected': result.get('speakers_detected', 1),
-                    'processing_method': result.get('processing_method', 'whisper'),
-                    'model_used': 'OpenAI-Whisper-Base'
-                })
-            
-            pd.DataFrame(enhanced_results).to_csv(results_file, index=False)
-            print(f"📊 Enhanced results saved: {results_file}")
-            
-            print(f"\n📝 Sample Whisper Processing Results:")
-            for i, result in enumerate(processed_results[:3], 1):
-                input_file = os.path.basename(result.get('clean_chunk_file', 'unknown'))
-                transcription = result.get('transcription', '')[:80] + "..." if result.get('transcription') else 'N/A'
-                voice_pct = result.get('voice_percentage', 0)
-                word_count = result.get('word_count', 0)
-                print(f"  {i}. {input_file}")
-                print(f"     Voice: {voice_pct:.1f}% | Words: {word_count}")
-                print(f"     Transcript: {transcription}")
-                print(f"     Model: OpenAI-Whisper-Base")
-        else:
-            print("❌ No files could be processed successfully")
-    
-    except Exception as e:
-        print(f"❌ Stage 7 Whisper processing error: {e}")
-
-
 def run_stage1_only(input_file, force_recheck=False):
     """Run only Stage 1: Account Validation"""
     cfg = Config()
@@ -686,57 +489,9 @@ def run_stage4_only(links_file):
     return audio_file
 
 
-def run_stage5_only(audio_links_file):
-    """Run only Stage 5: Enhanced Audio Content Detection"""
-    print("🎵 STAGE 5 ONLY: Enhanced YouTube, Twitch & TikTok Audio Content Detection")
-    print("=" * 50)
-    
-    if not os.path.exists(audio_links_file):
-        print(f"❌ Audio links file not found: {audio_links_file}")
-        return None
-    
-    df = pd.read_csv(audio_links_file)
-    audio_links = df.to_dict('records')
-    print(f"📥 Loaded {len(audio_links)} audio links from: {audio_links_file}")
-    
-    cfg = Config()
-    audio_detector = AudioContentDetector("config.json")
-
-    
-    audio_detected_links = audio_detector.detect_audio_content(audio_links)
-    if not audio_detected_links:
-        print("🔍 No audio content detected")
-        return None
-    
-    base_name = os.path.splitext(os.path.basename(audio_links_file))[0]
-    audio_detected_file = os.path.join("output", f"5_{base_name.replace('4_', '')}_audio_detected.csv")
-    pd.DataFrame(audio_detected_links).to_csv(audio_detected_file, index=False)
-    
-    audio_types = {}
-    confidence_levels = {}
-    for link in audio_detected_links:
-        audio_type = link.get('audio_type', 'unknown')
-        confidence = link.get('audio_confidence', 'unknown')
-        audio_types[audio_type] = audio_types.get(audio_type, 0) + 1
-        confidence_levels[confidence] = confidence_levels.get(confidence, 0) + 1
-    
-    print(f"✅ Stage 5 completed!")
-    print(f"🔊 Audio content detected: {len(audio_detected_links)}")
-    print("📊 Audio Content Breakdown:")
-    print("  Audio Types:")
-    for audio_type, count in sorted(audio_types.items(), key=lambda x: x[1], reverse=True):
-        print(f"    {audio_type}: {count}")
-    print("  Confidence Levels:")
-    for confidence, count in confidence_levels.items():
-        print(f"    {confidence}: {count}")
-    print(f"📁 Audio detected file: {audio_detected_file}")
-    print(f"💡 Next: Run Stage 6 with --stage6-only {audio_detected_file}")
-    return audio_detected_file
-
-
-def run_stage6_only(confirmed_voice_file, output_dir="output"):
-    """Run only Stage 6: Voice Sample Extraction (MP3 Output) - Direct import, no subprocess"""
-    print("🎤 STAGE 6 ONLY: Voice Sample Extraction (MP3 Output)")
+def run_stage5_only(confirmed_voice_file, output_dir="output"):
+    """Run only Stage 5: Voice Sample Extraction (MP3 Output) - Direct import, no subprocess"""
+    print("🎤 STAGE 5 ONLY: Voice Sample Extraction (MP3 Output)")
     print("=" * 50)
     
     if not os.path.exists(confirmed_voice_file):
@@ -761,17 +516,126 @@ def run_stage6_only(confirmed_voice_file, output_dir="output"):
             result_csv = os.path.join(output_dir, "6_voice_samples_results.csv")
             save_results(extracted_samples, result_csv)
             
-            print("✅ Stage 6 completed successfully!")
+            print("✅ Stage 5 completed successfully!")
             print(f"🎤 Successfully processed {len(extracted_samples)} voice samples")
             print(f"📁 Voice samples directory: {voice_samples_dir}")
             print(f"📄 Results CSV: {result_csv}")
-            print(f"💡 Next: Run Stage 7 with --stage7-only {voice_samples_dir}")
+            print(f"💡 Next: Run Stage 6 with --stage6-only {voice_samples_dir}")
         else:
             print("❌ No voice samples could be extracted")
             print("💡 Check internet connection and ensure yt-dlp/ffmpeg are installed")
     
     except Exception as e:
-        print(f"❌ Error running Stage 6: {e}")
+        print(f"❌ Error running Stage 5: {e}")
+
+
+def run_stage6_only(audio_dir):
+    """Run only Stage 6: Advanced Voice Detection (Enhanced voice analysis)"""
+    print("🎤 STAGE 6 ONLY: Advanced Voice Detection (Enhanced Analysis)")
+    print("-" * 60)
+    print("🎤 Processing audio files with advanced voice detection")
+    print("📝 Using Whisper, Pyannote VAD, and SpeechBrain for comprehensive analysis")
+    
+    try:
+        cfg = Config()
+        advanced_processor = AdvancedVoiceDetector(
+            output_dir=os.path.join(audio_dir, "stage6_processed"),
+            threshold=0.5,
+            min_duration=5.0,
+            huggingface_token=cfg.HUGGINGFACE_TOKEN
+        )
+        
+        wav_files = [f for f in os.listdir(audio_dir) if f.endswith('.wav')]
+        mp3_files = [f for f in os.listdir(audio_dir) if f.endswith('.mp3')]
+        
+        if not wav_files and not mp3_files:
+            print(f"❌ No audio files (WAV/MP3) found in: {audio_dir}")
+            return
+            
+        print(f"📁 Found {len(wav_files)} WAV files and {len(mp3_files)} MP3 files")
+        
+        all_results = []
+        
+        # Process WAV files directly
+        for wav_file in wav_files:
+            wav_path = os.path.join(audio_dir, wav_file)
+            print(f"🎵 Processing WAV: {wav_file}")
+            try:
+                results = advanced_processor.process_audio_file(wav_path)
+                all_results.extend(results)
+            except Exception as e:
+                print(f"⚠️ Error processing {wav_file}: {e}")
+                continue
+        
+        # Process MP3 files (they'll be converted to WAV internally)
+        for mp3_file in mp3_files:
+            mp3_path = os.path.join(audio_dir, mp3_file)
+            print(f"🎵 Processing MP3: {mp3_file}")
+            try:
+                results = advanced_processor.process_audio_file(mp3_path)
+                all_results.extend(results)
+            except Exception as e:
+                print(f"⚠️ Error processing {mp3_file}: {e}")
+                continue
+        
+        processed_results = all_results
+        
+        if processed_results:
+            print(f"✅ Stage 6 completed!")
+            print(f"🤖 Successfully processed: {len(processed_results)} audio files")
+            print(f"📁 Output directory: {advanced_processor.output_dir}")
+            
+            # Save enhanced results with transcriptions
+            results_file = os.path.join(audio_dir, f"6_voice_detection_results.csv")
+            enhanced_results = []
+            
+            for result in processed_results:
+                enhanced_results.append({
+                    'input_file': result.get('clean_chunk_file', ''),
+                    'output_file': result.get('clean_chunk_file', ''),
+                    'transcription': result.get('transcription', ''),
+                    'voice_percentage': result.get('voice_percentage', 0),
+                    'overlap_percentage': result.get('overlap_percentage', 0),
+                    'speakers_detected': result.get('speakers_detected', 1),
+                    'word_count': result.get('word_count', 0),
+                    'char_count': result.get('char_count', 0),
+                    'avg_confidence': result.get('avg_confidence', 0),
+                    'processing_method': result.get('processing_method', 'whisper'),
+                    'chunk_number': result.get('chunk_number', 1),
+                    'total_chunks': result.get('total_chunks', 1),
+                    'processed_username': result.get('processed_username', 'unknown'),
+                    'platform_source': result.get('platform_source', 'unknown'),
+                    'input_format': 'Audio',
+                    'output_format': 'WAV + Transcription',
+                    'model_used': 'OpenAI-Whisper-Base'
+                })
+            
+            pd.DataFrame(enhanced_results).to_csv(results_file, index=False)
+            print(f"📊 Enhanced processing results saved: {results_file}")
+            
+            print(f"\n🎤 Sample Voice Detection Results:")
+            for i, result in enumerate(processed_results[:3], 1):
+                input_file = os.path.basename(result.get('clean_chunk_file', 'unknown'))
+                transcription = result.get('transcription', '')[:80] + "..." if result.get('transcription') else 'N/A'
+                voice_pct = result.get('voice_percentage', 0)
+                word_count = result.get('word_count', 0)
+                confidence = result.get('avg_confidence', 0)
+                print(f"  {i}. {input_file}")
+                print(f"     Voice Quality: {voice_pct:.1f}% | Words: {word_count} | Confidence: {confidence:.3f}")
+                print(f"     Transcription: {transcription}")
+                print(f"     Model: OpenAI-Whisper-Base | Format: WAV + Transcript")
+            
+            print(f"\n🔄 Stage 6 Processing Summary:")
+            print(f"  📥 Input: {len(wav_files + mp3_files)} audio files")
+            print(f"  🤖 Processing: Advanced Voice Detection")
+            print(f"  📤 Output: Enhanced WAV + transcripts ({len(processed_results)} files)")
+            print(f"  🎯 AI Model: OpenAI Whisper + Pyannote + SpeechBrain")
+        else:
+            print("❌ Stage 6 Voice Detection failed - no results returned")
+            
+    except Exception as e:
+        print(f"❌ Stage 6 Voice Detection failed: {e}")
+        print(f"💡 Check that audio files exist in: {audio_dir}")
 
 
 def show_help():
@@ -779,7 +643,7 @@ def show_help():
 🤖 WHISPER ENHANCED YOUTUBE, TWITCH & TIKTOK VOICE CONTENT PIPELINE
 
 PIPELINE FLOW:
-1→2→3→4→5→6→7
+1→2→3→4→5→6
 
 INDIVIDUAL STAGES:
 --stage1-only FILE     Stage 1: Account Validation
@@ -787,20 +651,20 @@ INDIVIDUAL STAGES:
 --stage3-only SNAPSHOT Stage 3: Data Download
 --stage3_5-only FILE   Stage 3.5: YouTube/Twitch Channel Discovery
 --stage4-only FILE     Stage 4: YouTube/Twitch Filter
---stage5-only FILE     Stage 5: Audio Detection (FINAL VOICE DECISION)
---stage6-only FILE     Stage 6: Voice Sample Extraction (MP3 Output)
---stage7-only DIR      Stage 7: Advanced Whisper Analysis + Transcription
+--stage5-only FILE     Stage 5: Voice Sample Extraction (MP3 Output)
+--stage6-only DIR      Stage 6: Advanced Voice Detection + Transcription
 
 🤖 WHISPER ENHANCEMENTS:
-- Stage 7: Advanced Whisper transcription and analysis
+- Stage 6: Advanced Voice Detection using Whisper, Pyannote VAD, and SpeechBrain
 - Automatic MP3 → WAV conversion for Whisper processing
 - Enhanced speech quality analysis with confidence scores
 - Full transcription generation for all audio chunks
 
 📝 TRANSCRIPTION FEATURES:
 - Real-time speech-to-text using OpenAI Whisper
+- Voice activity detection using Pyannote
+- Speaker verification using SpeechBrain
 - Voice quality assessment and confidence scoring
-- Intelligent overlap detection using transcription analysis
 - Word count and character count metrics per chunk
 
 NOTES:
@@ -827,10 +691,9 @@ if __name__ == "__main__":
     parser.add_argument("--stage2-only", help="Run only Stage 2 - Bright Data trigger")
     parser.add_argument("--stage3-only", help="Run only Stage 3 - Data download")
     parser.add_argument("--stage3_5-only", help="Run only Stage 3.5 - YouTube/Twitch channel discovery")
-    parser.add_argument("--stage4-only", help="Run only Stage 4 - Platform filtering")
-    parser.add_argument("--stage5-only", help="Run only Stage 5 - Audio detection")
-    parser.add_argument("--stage6-only", help="Run only Stage 6 - Voice sample extraction (MP3)")
-    parser.add_argument("--stage7-only", help="Run only Stage 7 - Advanced Whisper analysis + transcription")
+    parser.add_argument("--stage4-only", help="Run only Stage 4 - YouTube/Twitch filter")
+    parser.add_argument("--stage5-only", help="Run only Stage 5 - Voice sample extraction (MP3)")
+    parser.add_argument("--stage6-only", help="Run only Stage 6 - Advanced Whisper analysis + transcription")
     
     # Information commands
     parser.add_argument("--show-log", action="store_true", help="Show account validation log")
@@ -888,16 +751,9 @@ if __name__ == "__main__":
     
     if args.stage6_only:
         if not os.path.exists(args.stage6_only):
-            print(f"❌ Confirmed voice file not found: {args.stage6_only}")
+            print(f"❌ Audio directory not found: {args.stage6_only}")
             sys.exit(1)
-        run_stage6_only(args.stage6_only, "output")
-        sys.exit(0)
-    
-    if args.stage7_only:
-        if not os.path.exists(args.stage7_only):
-            print(f"❌ Audio directory not found: {args.stage7_only}")
-            sys.exit(1)
-        run_stage7_only(args.stage7_only, "stage7_output")
+        run_stage6_only(args.stage6_only)
         sys.exit(0)
     
     # Handle information commands
@@ -933,10 +789,10 @@ if __name__ == "__main__":
             sys.exit(1)
         
         try:
-            print(f"🚀 Starting Whisper enhanced 7-stage pipeline")
+            print(f"🚀 Starting Whisper enhanced 6-stage pipeline")
             print(f"🤖 AI Model: OpenAI Whisper for speech processing and transcription")
             print(f"🔄 Force recheck: {'Yes' if args.force_recheck else 'No (using cache)'}")
-            print(f"🎵 Audio flow: Stage 6 (MP3) → Stage 7 (WAV+Transcripts)")
+            print(f"🎵 Audio flow: Stage 5 (MP3) → Stage 6 (WAV+Transcripts)")
             main(args.input, args.force_recheck)
         except KeyboardInterrupt:
             print("\n⏹️ Pipeline interrupted by user (Ctrl+C)")
@@ -952,8 +808,8 @@ if __name__ == "__main__":
         print("💡 Use --input FILE for full pipeline or --help-detailed for usage guide")
         print("\n🎯 Quick start examples:")
         print("  python main_pipeline.py --input usernames.csv")
-        print("  python main_pipeline.py --stage6_5-only output/voice_samples/")
-        print("  python main_pipeline.py --stage7-only output/clean_chunks")
-        print("\n🔄 Pipeline: 1→2→3→4→5→6→7")
-        print("🤖 Enhanced: OpenAI Whisper speech processing and transcription in stages 7")
+        print("  python main_pipeline.py --stage6-only output/voice_samples/")
+        print("\n🔄 Pipeline: 1→2→3→4→5→6")
+        print("🤖 Enhanced: OpenAI Whisper speech processing and transcription in stages 6")
+        print("🎵 Audio format flow: MP3 (Stage 5) → WAV + Whisper (Stage 6)")
         sys.exit(1)

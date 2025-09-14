@@ -81,14 +81,12 @@ python main_pipeline.py --stage3_5-only output/3_snapshot_xyz_external_links.csv
 # Stage 4: Audio Platform Filtering
 python main_pipeline.py --stage4-only output/3_snapshot_xyz_external_links.csv
 
-# Stage 5: Audio Content Detection
-python main_pipeline.py --stage5-only output/4_snapshot_xyz_audio_links.csv
 
-# Stage 6: Voice Sample Extraction
-python main_pipeline.py --stage6-only output/5_snapshot_xyz_audio_detected.csv
+# Stage 5: Voice Sample Extraction
+python main_pipeline.py --stage5-only output/5_snapshot_xyz_audio_detected.csv
 
-# Stage 7: Advanced Whisper Analysis
-python main_pipeline.py --stage7-only output/voice_samples/
+# Stage 6: Advanced Voice Detection
+python main_pipeline.py --stage6-only output/voice_samples/
 ```
 
 ### Full Pipeline Example
@@ -129,9 +127,8 @@ x-audio-content-pipeline/
 │   ├── step3_bright_data_download.py      # ⬇️ Stage 3: Data download
 │   ├── step3_5_youtube_twitch_runner.py   # 🔍 Stage 3.5: Channel discovery
 │   ├── step4_audio_filter.py              # 🎯 Stage 4: Audio platform filter
-│   ├── step5_voice_detector.py            # 🎵 Stage 5: Voice detection
-│   ├── step6_voice_sample_extractor.py    # 🎤 Stage 6: Sample extraction
-│   └── step7_advanced_voice_processor.py  # 🤖 Stage 7: Whisper processing
+│   ├── step5_voice_sample_extractor.py    # 🎤 Stage 5: Sample extraction
+│   └── step6_voice_detector_advance.py    # 🤖 Stage 6: Advanced voice detection
 │
 ├── 📁 Utilities
 │   ├── utils/
@@ -166,7 +163,7 @@ x-audio-content-pipeline/
 │   │   ├── 3_snapshot_*_external_links.csv # 🔗 Stage 3 output
 │   │   ├── 4_*_audio_links.csv            # 🎯 Stage 4 output
 │   │   ├── 5_*_audio_detected.csv         # 🎵 Stage 5 output
-│   │   ├── 6_voice_samples_results.csv    # 🎤 Stage 6 output
+│   │   ├── 5_voice_samples_results.csv    # 🎤 Stage 5 output
 │   │   └── 7_whisper_results.csv          # 📝 Stage 7 output
 │   └── output_audio2/                     # 🎵 Alternative audio output
 │

@@ -185,3 +185,9 @@ xxhash==3.5.0
 yarl==1.20.1
 yt-dlp==2025.8.22
 zipp==3.23.0
+torch>=2.2
+whisper
+pyannote.audio
+speechbrain>=1.0
+pydub
+ffmpeg  # system package or static build
