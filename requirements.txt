@@ -153,7 +153,6 @@ sortedcontainers==2.4.0
 soundfile==0.13.1
 soupsieve==2.8
 soxr==0.5.0.post1
-speechbrain==1.0.3
 SpeechRecognition==3.14.3
 SQLAlchemy==2.0.43
 standard-aifc==3.13.0
@@ -188,6 +187,5 @@ zipp==3.23.0
 torch>=2.2
 whisper
 pyannote.audio
-speechbrain>=1.0
 pydub
 ffmpeg  # system package or static build

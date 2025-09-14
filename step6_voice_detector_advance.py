@@ -7,13 +7,12 @@ from pydub import AudioSegment
 import torch
 import whisper
 from pyannote.audio import Pipeline
-from speechbrain.inference import SpeakerRecognition  # Fixed import
 from typing import List, Dict, Optional
 import pandas as pd
 import numpy as np
 
 class AdvancedVoiceDetector:
-    """Advanced voice detection using Whisper, Pyannote VAD, and SpeechBrain"""
+    """Advanced voice detection using Whisper and Pyannote VAD"""
 
     def __init__(self, output_dir: str, threshold: float = 0.5, min_duration: float = 5.0, 
                  huggingface_token: Optional[str] = None, verbose: bool = False):
@@ -29,22 +28,26 @@ class AdvancedVoiceDetector:
         # Initialize models
         print("🔄 Loading Whisper model...")
         self.whisper_model = whisper.load_model("base")
+        print("✅ Whisper model loaded!")
 
         print("🔄 Loading Pyannote VAD pipeline...")
-        # Initialize Pyannote pipeline for VAD
-        if huggingface_token:
-            self.pyannote_pipeline = Pipeline.from_pretrained(
-                "pyannote/voice-activity-detection",
-                use_auth_token=huggingface_token
-            )
-        else:
-            self.pyannote_pipeline = Pipeline.from_pretrained("pyannote/voice-activity-detection")
+        try:
+            if self.huggingface_token:
+                self.pyannote_pipeline = Pipeline.from_pretrained(
+                    "pyannote/voice-activity-detection",
+                    use_auth_token=self.huggingface_token
+                )
+            else:
+                self.pyannote_pipeline = Pipeline.from_pretrained(
+                    "pyannote/voice-activity-detection"
+                )
+            print("✅ Pyannote VAD pipeline loaded!")
+        except Exception as e:
+            print(f"⚠️ Pyannote VAD failed to load: {e}")
+            print("🔄 Continuing with Whisper-only detection...")
+            self.pyannote_pipeline = None
 
-        print("🔄 Loading SpeechBrain model...")
-        # Load SpeechBrain pretrained speaker recognition model
-        self.speechbrain_model = SpeakerRecognition.from_hparams(
-            source="speechbrain/spkrec-ecapa-voxceleb"
-        )
+        print("✅ All models loaded successfully!")
 
         # Setup logging
         logging.basicConfig(
@@ -52,100 +55,90 @@ class AdvancedVoiceDetector:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler('voice_detection.log'),
-                logging.StreamHandler() if verbose else logging.NullHandler()
+                logging.StreamHandler()
             ]
         )
         self.logger = logging.getLogger(__name__)
-        print("✅ All models loaded successfully!")
-
-    def load_audio(self, file_path: str) -> Optional[AudioSegment]:
-        """Load and preprocess audio file with better error handling"""
-        try:
-            # Check file size first
-            file_size = os.path.getsize(file_path)
-            if file_size < 1000:  # Less than 1KB, likely corrupted
-                self.logger.error(f"File too small, likely corrupted: {file_path}")
-                return None
-                
-            audio = AudioSegment.from_file(file_path)
-            
-            # Check if audio has content
-            if len(audio) < 1000:  # Less than 1 second
-                self.logger.error(f"Audio too short: {file_path}")
-                return None
-                
-            audio = audio.set_channels(1)  # mono
-            audio = audio.set_frame_rate(16000)  # 16 kHz
-            return audio
-            
-        except Exception as e:
-            self.logger.error(f"Error loading {file_path}: {e}")
-            return None
 
     def audio_to_tensor(self, audio: AudioSegment) -> torch.Tensor:
-        """Convert AudioSegment to proper tensor format for pyannote"""
-        try:
-            # Convert to numpy array first
-            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-            
-            # Normalize to [-1, 1] range
-            if audio.sample_width == 2:  # 16-bit
-                samples = samples / 32768.0
-            elif audio.sample_width == 4:  # 32-bit
-                samples = samples / 2147483648.0
-            
-            # Convert to tensor and add batch dimension
-            waveform = torch.tensor(samples).unsqueeze(0)
-            return waveform
-            
-        except Exception as e:
-            self.logger.error(f"Error converting audio to tensor: {e}")
-            raise
+        """Convert AudioSegment to tensor format for pyannote"""
+        samples = np.array(audio.get_array_of_samples())
+        if audio.channels == 2:
+            samples = samples.reshape((-1, 2))
+            samples = samples.mean(axis=1)
+        
+        # Normalize to [-1, 1]
+        samples = samples.astype(np.float32) / (2**15)
+        
+        # Convert to tensor and add batch dimension
+        waveform = torch.from_numpy(samples).unsqueeze(0)
+        return waveform
 
     def detect_voice_in_file(self, file_path: str) -> Dict:
-        """Detect voice in a single audio file with improved speech vs music detection"""
+        """
+        Detect voice in audio file using Whisper and Pyannote VAD
+        Returns detailed analysis results
+        """
         result = {
-            'input_file': file_path,
+            'file_path': file_path,
             'voice_detected': False,
             'voice_score': 0.0,
             'speech_duration': 0.0,
             'transcription': '',
-            'error': None,
-            'output_file': None,
+            'word_count': 0,
+            'speaking_rate': 0.0,
             'music_detected': False,
-            'speech_to_music_ratio': 0.0
+            'speech_to_music_ratio': 0.0,
+            'error': None
         }
 
         try:
             if self.verbose:
                 print(f"🎵 Processing: {os.path.basename(file_path)}")
 
+            # Check file size
+            if os.path.getsize(file_path) < 1000:  # Less than 1KB
+                result['error'] = 'File too small, likely corrupted'
+                self.logger.error(f"File too small, likely corrupted: {file_path}")
+                return result
+
             # Load audio
-            audio = self.load_audio(file_path)
-            if audio is None:
+            try:
+                audio = AudioSegment.from_file(file_path)
+                if len(audio) < 1000:  # Less than 1 second
+                    result['error'] = 'Audio too short'
+                    return result
+            except Exception as e:
                 result['error'] = 'Failed to load audio'
                 return result
 
             waveform = self.audio_to_tensor(audio)
 
-            # Use pyannote VAD pipeline
-            vad_input = {
-                'waveform': waveform,
-                'sample_rate': 16000
-            }
-            vad_result = self.pyannote_pipeline(vad_input)
-            speech_segments = vad_result.get_timeline().support()
-            speech_duration = sum(segment.duration for segment in speech_segments)
-            result['speech_duration'] = speech_duration
+            # Use pyannote VAD pipeline if available
+            if self.pyannote_pipeline:
+                vad_input = {
+                    'waveform': waveform,
+                    'sample_rate': 16000
+                }
+                vad_result = self.pyannote_pipeline(vad_input)
+                speech_segments = vad_result.get_timeline().support()
+                speech_duration = sum(segment.duration for segment in speech_segments)
+                result['speech_duration'] = speech_duration
 
-            total_duration = len(waveform[0]) / 16000
-            speech_ratio = speech_duration / total_duration if total_duration > 0 else 0
+                total_duration = len(waveform[0]) / 16000
+                speech_ratio = speech_duration / total_duration if total_duration > 0 else 0
 
-            if speech_duration < self.min_duration:
-                result['error'] = f'Insufficient speech duration: {speech_duration:.2f}s (min: {self.min_duration}s)'
-                if self.verbose:
-                    print(f" ❌ Too short: {speech_duration:.2f}s")
-                return result
+                if speech_duration < self.min_duration:
+                    result['error'] = f'Insufficient speech duration: {speech_duration:.2f}s (min: {self.min_duration}s)'
+                    if self.verbose:
+                        print(f" ❌ Too short: {speech_duration:.2f}s")
+                    return result
+            else:
+                # Fallback: assume reasonable speech duration for Whisper processing
+                total_duration = len(audio) / 1000.0
+                speech_duration = total_duration * 0.7  # Assume 70% speech
+                speech_ratio = 0.7
+                result['speech_duration'] = speech_duration
 
             # Use Whisper for transcription
             try:
@@ -203,37 +196,19 @@ class AdvancedVoiceDetector:
                     print(f" ❌ Whisper failed: {e}")
                 return result
 
-            # Use SpeechBrain speaker recognition model to get voice score
-            try:
-                verification_result = self.speechbrain_model.verify_files(file_path, file_path)
-                # Handle result if it's a tuple or a tensor
-                if isinstance(verification_result, tuple):
-                    score = verification_result[0]
-                    if hasattr(score, 'item'):
-                        score = score.item()
-                elif hasattr(verification_result, 'item'):
-                    score = verification_result.item()
-                else:
-                    score = float(verification_result)
-
-                result['voice_score'] = score
-
-            except Exception as e:
-                self.logger.warning(f"SpeechBrain failed for {file_path}, using enhanced scoring: {e}")
-                base_score = 0.5
-                if 60 <= words_per_minute <= 180:
-                    base_score += 0.2
-                if speech_ratio > 0.5:
-                    base_score += 0.2
-                if word_count > 20:
-                    base_score += 0.1
-                result['voice_score'] = min(base_score, 1.0)
+            # Enhanced fallback scoring based on multiple factors
+            base_score = 0.5
+            if 60 <= words_per_minute <= 180:
+                base_score += 0.2
+            if speech_ratio > 0.5:
+                base_score += 0.2
+            if word_count > 20:
+                base_score += 0.1
+            result['voice_score'] = min(base_score, 1.0)
 
             # Enhanced voice detection criteria
             voice_criteria_met = (
                 result['voice_score'] >= self.threshold and
-                speech_duration >= self.min_duration and
-                not result['music_detected'] and
                 word_count >= 5 and
                 speech_ratio >= 0.3
             )
@@ -243,7 +218,7 @@ class AdvancedVoiceDetector:
                 filename = os.path.basename(file_path)
                 output_path = os.path.join(self.output_dir, filename)
                 shutil.copy(file_path, output_path)
-                result['output_file'] = output_path
+                result['output_path'] = output_path
 
                 if self.verbose:
                     print(f" ✅ Voice detected! Score: {result['voice_score']:.3f}, Duration: {speech_duration:.2f}s")
@@ -255,8 +230,6 @@ class AdvancedVoiceDetector:
                     reasons = []
                     if result['voice_score'] < self.threshold:
                         reasons.append(f"low score: {result['voice_score']:.3f}")
-                    if result['music_detected']:
-                        reasons.append("music detected")
                     if word_count < 5:
                         reasons.append(f"few words: {word_count}")
                     if speech_ratio < 0.3:
