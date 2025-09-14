@@ -207,11 +207,12 @@ class AdvancedVoiceDetector:
                 base_score += 0.1
             result['voice_score'] = min(base_score, 1.0)
 
-            # Enhanced voice detection criteria
+            # Enhanced voice detection criteria - more lenient for files with initial silence
             voice_criteria_met = (
                 result['voice_score'] >= self.threshold and
                 word_count >= 5 and
-                speech_ratio >= 0.3
+                (speech_ratio >= 0.3 or  # Original criteria
+                 (word_count >= 20 and speech_duration >= 30))  # Alternative: good content despite low ratio
             )
 
             if voice_criteria_met:
