@@ -60,7 +60,7 @@ class FinalResultsMerger:
     def get_processed_audio_files(self) -> List[str]:
         """Get list of successfully processed audio files from Step 6 output directory"""
         # Step 6 saves only files with detected voice to its output directory
-        processed_dir = os.path.join(self.output_dir, "voice_samples")
+        processed_dir = os.path.join(self.output_dir, "voice_samples", "stage6_processed")
         
         if not os.path.exists(processed_dir):
             print("❌ Step 6 output directory not found")
@@ -120,12 +120,17 @@ class FinalResultsMerger:
                     user_files.append(audio_file)
             
             # Find Stage 6 analysis results for this user
-            voice_detected = False
-            voice_score = 0.0
-            transcription = ""
+            voice_detected = len(user_files) > 0  # Default: if has audio files, assume voice detected
+            voice_score = 1.0 if voice_detected else 0.0
+            transcription = "Audio files found - Stage 6 analysis not available"
             word_count = 0
             
             if not stage6_df.empty:
+                # Reset defaults if we have Stage 6 results
+                voice_detected = False
+                voice_score = 0.0
+                transcription = ""
+                
                 # Look for results matching this username's files
                 for audio_file in user_files:
                     file_matches = stage6_df[stage6_df['file_path'].str.contains(audio_file, na=False)]
