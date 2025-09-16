@@ -14,45 +14,47 @@ class Step3_5_YouTubeTwitchRunner:
         self.output_dir = output_dir
         self.scraper_dir = os.path.join(os.path.dirname(__file__), "youtube-twitch-x-scraper")
         
-    def run_scraper_for_snapshot(self, snapshot_id=None):
-        """Run the YouTube-Twitch scraper - uses permanent CSV file"""
-        
-        # 1. Use the permanent external links CSV (no dynamic snapshot logic)
-        external_links_file = os.path.join(self.output_dir, "3_snapshot_s_mepo7m7c1bhrdvfkc6_external_links.csv")
+    def run_scraper_for_snapshot(self, external_links_file):
+        """Run the YouTube-Twitch scraper using provided filename"""
         
         if not os.path.exists(external_links_file):
             print(f"❌ External links file not found: {external_links_file}")
             return None
             
-        print(f"📂 Using permanent external links file: {external_links_file}")
+        print(f"📂 Using external links file: {external_links_file}")
         
-        # 2. Config file paths (no need to update, using permanent file)
+        # Extract just the filename from the full path
+        filename = os.path.basename(external_links_file)
+        
+        # Config file paths
         config_file = os.path.join(self.scraper_dir, "config.py")
         scraper_file = os.path.join(self.scraper_dir, "youtube_twitch_scraper.py")
         
-        # 3. Replace the dynamic path in config
+        # Replace the dynamic path in config with the provided filename
         with open(config_file, 'r') as f:
             config_content = f.read()
         
-        # Replace the dynamic placeholder with actual snapshot ID
-        config_content = config_content.replace(
-            "3_snapshot_DYNAMIC_external_links.csv", 
-            f"3_snapshot_{snapshot_id}_external_links.csv"
+        # Replace any existing external links filename with the new one
+        import re
+        config_content = re.sub(
+            r'DATA_FILE = "[^"]*3_snapshot_[^"]*_external_links\.csv"',
+            f'DATA_FILE = "../output/{filename}"',
+            config_content
         )
         
         with open(config_file, 'w') as f:
             f.write(config_content)
         
-        print(f"📝 Updated scraper config for snapshot {snapshot_id}")
+        print(f"📝 Updated scraper config for file: {filename}")
         
         # 3.5. Verify config update was successful
         with open(config_file, 'r') as f:
             updated_content = f.read()
         
-        if f"3_snapshot_{snapshot_id}_external_links.csv" in updated_content:
-            print(f"✅ Config successfully updated with snapshot {snapshot_id}")
+        if filename in updated_content:
+            print(f"✅ Config successfully updated with file: {filename}")
         else:
-            print(f"⚠️ Warning: Config update may have failed")
+            print("⚠️ Warning: Config update may have failed")
         
         # 4. Run the scraper
         print(f"🚀 Running YouTube-Twitch scraper...")
@@ -105,17 +107,17 @@ class Step3_5_YouTubeTwitchRunner:
 
 
 def main():
-    """Standalone execution - snapshot-id optional since using permanent file"""
+    """Standalone execution - takes filename directly"""
     import argparse
     
     parser = argparse.ArgumentParser(description="Step 3.5: Run YouTube-Twitch scraper")
-    parser.add_argument("--snapshot-id", help="Snapshot ID (ignored, using permanent file)")
+    parser.add_argument("filename", help="External links CSV filename")
     parser.add_argument("--output-dir", default="output/", help="Output directory")
     
     args = parser.parse_args()
     
     runner = Step3_5_YouTubeTwitchRunner(args.output_dir)
-    result = runner.run_scraper_for_snapshot(args.snapshot_id)  # Passed but ignored
+    result = runner.run_scraper_for_snapshot(args.filename)
     
     if result:
         print(f"✅ Step 3.5 completed: {result}")

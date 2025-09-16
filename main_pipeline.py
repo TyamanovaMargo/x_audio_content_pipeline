@@ -392,7 +392,7 @@ def run_stage3_5_only(links_file):
     print(f"📥 Loaded {len(links)} links from: {links_file}")
 
     runner = Step3_5_YouTubeTwitchRunner(cfg.OUTPUT_DIR)
-    enhanced_file = runner.run_scraper_for_snapshot(links)
+    enhanced_file = runner.run_scraper_for_snapshot(links_file)
 
     if enhanced_file:
         print(f"✅ Stage 3.5 completed: {enhanced_file}")
