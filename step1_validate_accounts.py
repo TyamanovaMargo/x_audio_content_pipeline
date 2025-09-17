@@ -156,6 +156,59 @@ class AccountValidator:
         except Exception as e:
             logger.warning(f"Error in human-like behavior: {e}")
 
+    async def verify_account_by_following_click(self, page: Page, username: str) -> bool:
+        """Verify account exists by attempting to click Following button."""
+        try:
+            logger.info(f"🔍 Verifying {username} by clicking Following button...")
+            
+            # Wait a bit for page to fully load
+            await asyncio.sleep(random.uniform(2.0, 4.0))
+            
+            # Try different selectors for Following button/link
+            following_selectors = [
+                'a[href$="/following"]',
+                'a[href*="/following"]',
+                '[data-testid="UserProfileHeader_Items"] a[href*="following"]',
+                'a:has-text("Following")',
+                'div:has-text("Following")',
+                'span:has-text("Following")'
+            ]
+            
+            for selector in following_selectors:
+                try:
+                    following_element = await page.query_selector(selector)
+                    if following_element:
+                        # Check if element is clickable
+                        is_clickable = await following_element.is_enabled()
+                        if is_clickable:
+                            logger.info(f"✅ Found clickable Following element: {selector}")
+                            
+                            # Perform the click
+                            await following_element.click()
+                            await asyncio.sleep(random.uniform(1.0, 2.0))
+                            
+                            # Check if we navigated to following page or got some response
+                            current_url = page.url
+                            if '/following' in current_url or 'following' in current_url.lower():
+                                logger.info(f"✅ Successfully clicked Following - navigated to: {current_url}")
+                                return True
+                            else:
+                                # Even if URL didn't change, the click worked which means account exists
+                                logger.info(f"✅ Following button clicked successfully (account verified)")
+                                return True
+                        else:
+                            logger.info(f"Following element found but not clickable: {selector}")
+                except Exception as e:
+                    logger.debug(f"Error with selector {selector}: {e}")
+                    continue
+            
+            logger.warning(f"⚠️ No clickable Following button found for {username}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error verifying account by Following click: {e}")
+            return False
+
     async def check_account_simple(self, page: Page, username: str) -> Dict:
         """Simplified account checking with better detection avoidance."""
         url = f'https://x.com/{username}'
@@ -163,7 +216,6 @@ class AccountValidator:
             "username": username,
             "status": "error",
             "last_activity": None,
-            "external_links": [],
             "follower_count": None,
             "following_count": None,
             "verification": "unknown"
@@ -221,8 +273,14 @@ class AccountValidator:
             if profile_found:
                 # Try to extract basic info safely
                 await self.extract_basic_info(page, result)
-                result['status'] = 'exists'
-                logger.info(f"✅ Account {username} exists")
+                
+                # Additional verification by clicking Following button
+                if await self.verify_account_by_following_click(page, username):
+                    result['status'] = 'exists'
+                    logger.info(f"✅ Account {username} exists")
+                else:
+                    result['status'] = 'requires_auth'
+                    logger.info(f"🔑 Account {username} may require authentication")
             else:
                 result['status'] = 'requires_auth'
                 logger.info(f"🔑 Account {username} may require authentication")
@@ -277,25 +335,6 @@ class AccountValidator:
                     break
             else:
                 result['verification'] = "not_verified"
-            
-            # Extract external links safely
-            link_selectors = [
-                '[data-testid="UserUrl"] a',
-                '[data-testid="UserDescription"] a[href^="http"]'
-            ]
-            
-            external_links = []
-            for selector in link_selectors:
-                try:
-                    links = await page.query_selector_all(selector)
-                    for link in links:
-                        href = await link.get_attribute('href')
-                        if href and not any(domain in href.lower() for domain in ['x.com', 'twitter.com', 't.co']):
-                            external_links.append(href)
-                except:
-                    continue
-            
-            result['external_links'] = list(set(external_links))  # Remove duplicates
             
         except Exception as e:
             logger.warning(f"Error extracting basic info: {e}")
@@ -363,68 +402,87 @@ class AccountValidator:
             
             self.session_manager.current_context = context
 
-            # Process accounts with conservative settings
+            # Process accounts with conservative settings in batches
             sem = asyncio.Semaphore(1)  # Very conservative: only 1 concurrent request
             results = []
+            batch_size = 20  # Process in batches of 20
             
-            logger.info(f"🚀 Starting validation (concurrency: 1)")
+            logger.info(f"🚀 Starting validation (concurrency: 1, batch size: {batch_size})")
             
-            # Create tasks for all usernames
-            tasks = [asyncio.create_task(self.worker(sem, context, username)) 
-                    for username in usernames_to_check]
+            # Process in batches
+            for batch_start in range(0, len(usernames_to_check), batch_size):
+                batch_usernames = usernames_to_check[batch_start:batch_start + batch_size]
+                batch_num = (batch_start // batch_size) + 1
+                total_batches = (len(usernames_to_check) + batch_size - 1) // batch_size
+                
+                logger.info(f"\n📦 Processing batch {batch_num}/{total_batches} ({len(batch_usernames)} accounts)")
+                
+                # Create tasks for current batch
+                batch_tasks = [asyncio.create_task(self.worker(sem, context, username)) 
+                              for username in batch_usernames]
+                
+                # Process batch results
+                for i, task in enumerate(asyncio.as_completed(batch_tasks), 1):
+                    try:
+                        result = await task
+                        if result['status'] != 'skipped':
+                            results.append(result)
+                        
+                        status_emoji = {
+                            'exists': '✅',
+                            'does_not_exist': '❌',
+                            'suspended': '🚫',
+                            'protected': '🔒',
+                            'requires_auth': '🔑',
+                            'error': '⚠️',
+                            'skipped': '⏭️'
+                        }.get(result['status'], '❓')
+                        
+                        extra_info = []
+                        if result.get('following_count') is not None:
+                            extra_info.append(f"Following: {result['following_count']}")
+                        if result.get('follower_count') is not None:
+                            extra_info.append(f"Followers: {result['follower_count']}")
+                        if result.get('verification') == 'verified':
+                            extra_info.append("✓")
+                        
+                        extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
+                        global_index = batch_start + i
+                        
+                        print(f"{status_emoji} [{global_index}/{len(usernames_to_check)}] {result['username']} -> {result['status']}{extra_str}")
+                        
+                    except Exception as e:
+                        logger.error(f"Task error: {e}")
+                        results.append({"username": "unknown", "status": "error"})
+                
+                # Save intermediate progress
+                if batch_start % (batch_size * 5) == 0:  # Save every 5 batches
+                    temp_output = output_file.replace('.csv', f'_checkpoint_{batch_num}.csv')
+                    existing_accounts = [r for r in results if r.get('status') == 'exists']
+                    if existing_accounts:
+                        self._save_results(existing_accounts, temp_output)
+                        logger.info(f"💾 Checkpoint save: {temp_output} ({len(existing_accounts)} existing accounts)")
+                
+                # Pause between batches (except for the last batch)
+                if batch_start + batch_size < len(usernames_to_check):
+                    pause_time = random.randint(120, 300)  # 2-5 minutes pause
+                    logger.info(f"⏳ Pausing between batches: {pause_time} seconds...")
+                    await asyncio.sleep(pause_time)
             
-            # Process results
-            for i, task in enumerate(asyncio.as_completed(tasks), 1):
-                try:
-                    result = await task
-                    if result['status'] != 'skipped':
-                        results.append(result)
-                    
-                    status_emoji = {
-                        'exists': '✅',
-                        'does_not_exist': '❌',
-                        'suspended': '🚫',
-                        'protected': '🔒',
-                        'requires_auth': '🔑',
-                        'error': '⚠️',
-                        'skipped': '⏭️'
-                    }.get(result['status'], '❓')
-                    
-                    extra_info = []
-                    if result.get('following_count') is not None:
-                        extra_info.append(f"Following: {result['following_count']}")
-                    if result.get('follower_count') is not None:
-                        extra_info.append(f"Followers: {result['follower_count']}")
-                    if result.get('external_links'):
-                        extra_info.append(f"Links: {len(result['external_links'])}")
-                    if result.get('verification') == 'verified':
-                        extra_info.append("✓")
-                    
-                    extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
-                    
-                    print(f"{status_emoji} [{i}/{len(usernames_to_check)}] {result['username']} -> {result['status']}{extra_str}")
-                    
-                except Exception as e:
-                    logger.error(f"Task error: {e}")
-                    results.append({"username": "unknown", "status": "error"})
-
-            # Save results
+            # Save final results - only existing accounts
             self.progress_manager.save_progress()
-            self._save_results(results, output_file)
+            existing_accounts = [result for result in results if result.get('status') == 'exists']
+            self._save_results(existing_accounts, output_file)
             
             logger.info(f"🎉 Validation complete! Results saved to {output_file}")
+            logger.info(f"📊 Found {len(existing_accounts)} existing accounts out of {len(results)} total processed")
             await browser.close()
             
-            return results
+            return existing_accounts
 
     def _save_results(self, results: List[Dict], output_file: str):
         """Save results to CSV file - only accounts with 'exists' status."""
         try:
-            # Filter to only include accounts that exist
-            existing_accounts = [result for result in results if result.get('status') == 'exists']
-            
-            logger.info(f"Filtered {len(existing_accounts)} existing accounts from {len(results)} total results")
-            
             # Simplified fieldnames - only username and status
             fieldnames = ['username', 'status']
             
@@ -432,7 +490,7 @@ class AccountValidator:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 
-                for result in existing_accounts:
+                for result in results:
                     # Clean up data for CSV - only essential fields
                     row = {
                         'username': result.get('username', ''),
@@ -440,7 +498,7 @@ class AccountValidator:
                     }
                     writer.writerow(row)
             
-            logger.info(f"Results saved to {output_file} - {len(existing_accounts)} existing accounts only")
+            logger.info(f"Results saved to {output_file} - {len(results)} existing accounts only")
             
         except Exception as e:
             logger.error(f"Error saving results: {e}")
