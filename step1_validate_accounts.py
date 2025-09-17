@@ -81,7 +81,9 @@ class SessionManager:
 class ProgressManager:
     """Enhanced progress manager with better error handling."""
     
-    def __init__(self, filename='processed_accounts.json'):
+    def __init__(self, filename='output/processed_accounts.json'):
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         self.filename = filename
         self.processed = set()
         self.failed = set()
@@ -127,7 +129,7 @@ class ProgressManager:
             self.save_progress()
 
 class AccountValidator:
-    def __init__(self, max_concurrent=1, log_file="processed_accounts.json", 
+    def __init__(self, max_concurrent=1, log_file="output/processed_accounts.json", 
                  login=None, password=None, backup_login=None, backup_password=None):
         self.max_concurrent = max_concurrent
         self.log_file = log_file
@@ -416,29 +418,29 @@ class AccountValidator:
             return results
 
     def _save_results(self, results: List[Dict], output_file: str):
-        """Save results to CSV file."""
+        """Save results to CSV file - only accounts with 'exists' status."""
         try:
-            fieldnames = ['username', 'status', 'last_activity', 'external_links', 
-                         'following_count', 'follower_count', 'verification']
+            # Filter to only include accounts that exist
+            existing_accounts = [result for result in results if result.get('status') == 'exists']
+            
+            logger.info(f"Filtered {len(existing_accounts)} existing accounts from {len(results)} total results")
+            
+            # Simplified fieldnames - only username and status
+            fieldnames = ['username', 'status']
             
             with open(output_file, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 
-                for result in results:
-                    # Clean up data for CSV
+                for result in existing_accounts:
+                    # Clean up data for CSV - only essential fields
                     row = {
                         'username': result.get('username', ''),
-                        'status': result.get('status', ''),
-                        'last_activity': result.get('last_activity', ''),
-                        'external_links': '; '.join(result.get('external_links', [])),
-                        'following_count': result.get('following_count', ''),
-                        'follower_count': result.get('follower_count', ''),
-                        'verification': result.get('verification', '')
+                        'status': result.get('status', '')
                     }
                     writer.writerow(row)
             
-            logger.info(f"Results saved to {output_file}")
+            logger.info(f"Results saved to {output_file} - {len(existing_accounts)} existing accounts only")
             
         except Exception as e:
             logger.error(f"Error saving results: {e}")
