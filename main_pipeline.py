@@ -39,8 +39,6 @@ def main(input_file, force_recheck=False):
     log_file = os.path.join(cfg.OUTPUT_DIR, "processed_accounts.json")
     validator = AccountValidator(
         max_concurrent=cfg.MAX_CONCURRENT_VALIDATIONS,
-        delay_min=cfg.VALIDATION_DELAY_MIN,
-        delay_max=cfg.VALIDATION_DELAY_MAX,
         log_file=log_file
     )
     existing_accounts_file = os.path.join(cfg.OUTPUT_DIR, "1_existing_accounts.csv")
@@ -290,8 +288,6 @@ def run_stage1_only(input_file, force_recheck=False):
     log_file = os.path.join(cfg.OUTPUT_DIR, "processed_accounts.json")
     validator = AccountValidator(
         max_concurrent=cfg.MAX_CONCURRENT_VALIDATIONS,
-        delay_min=cfg.VALIDATION_DELAY_MIN,
-        delay_max=cfg.VALIDATION_DELAY_MAX,
         log_file=log_file
     )
 
