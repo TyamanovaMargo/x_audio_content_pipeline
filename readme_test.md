@@ -1,8 +1,13 @@
 # Запуск с запасным аккаунтом
-python test.py --input usernames.csv --output results.csv \
-  --login main_account --password main_pass \
-  --backup-login backup_account --backup-password backup_pass \
+% python test.py --input sample_usernames.csv --output results.csv \ 
+  --login margati@ac.sce.ac.il --password 15092025 \  
+  --backup-login testbuba23@gmail.com --backup-password 15092025bubatest1 \ 
   --max-concurrent 2
+
+
+
+python test.py --input sample_usernames.csv --login testbuba23@gmail.com --password 15092025bubatest1 --no-headless
+
 
 # Продолжение после остановки
 python test.py --input usernames.csv --output results.csv --resume
@@ -13,3 +18,6 @@ export X_PASSWORD="main_pass"
 export X_BACKUP_LOGIN="backup_account"
 export X_BACKUP_PASSWORD="backup_pass"
 python test.py --input usernames.csv --output results.csv --max-concurrent 2
+
+
+

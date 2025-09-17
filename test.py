@@ -5,11 +5,102 @@ import csv
 import os
 import sys
 import argparse
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from typing import Optional, Dict
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 import random
 import time
+
+# Менеджер сессий для переключения между аккаунтами
+class SessionManager:
+    def __init__(self):
+        self.primary_account = None
+        self.backup_account = None
+        self.current_context = None
+        self.is_using_backup = False
+        self.login_attempts = 0
+        self.max_login_attempts = 3
+        
+    def set_accounts(self, primary_login, primary_password, backup_login=None, backup_password=None):
+        if primary_login and primary_password:
+            self.primary_account = (primary_login, primary_password)
+        if backup_login and backup_password:
+            self.backup_account = (backup_login, backup_password)
+            
+    async def switch_to_backup(self, browser: Browser):
+        """Переключение на запасной аккаунт"""
+        if not self.backup_account or self.is_using_backup:
+            print("❌ Запасной аккаунт недоступен или уже используется")
+            return False
+            
+        print("🔄 Переключение на запасной аккаунт...")
+        self.is_using_backup = True
+        self.login_attempts = 0
+        
+        if self.current_context:
+            await self.current_context.close()
+            
+        # Создаем новый контекст с другими параметрами
+        self.current_context = await browser.new_context(
+            user_agent=self.get_random_user_agent(),
+            viewport={'width': random.randint(1200, 1400), 'height': random.randint(700, 900)},
+            locale=random.choice(['en-US', 'en-GB']),
+            timezone_id=random.choice(['America/New_York', 'Europe/London'])
+        )
+        
+        print("✅ Создан новый контекст для запасного аккаунта")
+        return True
+    
+    def get_random_user_agent(self) -> str:
+        agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0'
+        ]
+        return random.choice(agents)
+    
+    def should_switch_account(self) -> bool:
+        """Определяет, нужно ли переключиться на запасной аккаунт"""
+        return (self.login_attempts >= self.max_login_attempts and 
+                self.backup_account and 
+                not self.is_using_backup)
+
+# Простой менеджер прогресса
+class ProgressManager:
+    def __init__(self, filename='progress.json'):
+        self.filename = filename
+        self.processed = set()
+        self.load_progress()
+        
+    def load_progress(self):
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r') as f:
+                    data = json.load(f)
+                    self.processed = set(data.get('processed', []))
+                    print(f"📖 Загружен прогресс: {len(self.processed)} обработано")
+            except Exception as e:
+                print(f"⚠️ Ошибка загрузки прогресса: {e}")
+    
+    def save_progress(self):
+        try:
+            with open(self.filename, 'w') as f:
+                json.dump({
+                    'processed': list(self.processed),
+                    'timestamp': datetime.now().isoformat()
+                }, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения прогресса: {e}")
+    
+    def is_processed(self, username: str) -> bool:
+        return username in self.processed
+    
+    def mark_processed(self, username: str):
+        self.processed.add(username)
+        if len(self.processed) % 10 == 0:
+            self.save_progress()
 
 # Человекоподобное поведение: случайные задержки, скроллы, движения мыши
 async def human_like_behavior(page: Page):
@@ -21,12 +112,14 @@ async def human_like_behavior(page: Page):
     await page.evaluate('window.scrollBy(0, Math.floor(Math.random() * 100));')
     await asyncio.sleep(random.uniform(0.3, 1.0))
 
-async def login_x(context: BrowserContext, headless: bool, login: str, password: str) -> BrowserContext:
-    """Улучшенная авторизация в X.com"""
+async def login_x(context: BrowserContext, headless: bool, login: str, password: str, session_manager: SessionManager) -> BrowserContext:
+    """Улучшенная авторизация в X.com с отслеживанием попыток"""
     page = await context.new_page()
     
     try:
-        print("🔐 Переход на страницу входа...")
+        account_type = "запасной" if session_manager.is_using_backup else "основной"
+        print(f"🔐 Переход на страницу входа ({account_type} аккаунт)...")
+        
         await page.goto('https://x.com/i/flow/login', timeout=20000)
         await asyncio.sleep(random.uniform(3.0, 5.0))
 
@@ -49,6 +142,7 @@ async def login_x(context: BrowserContext, headless: bool, login: str, password:
         
         if not username_input:
             print("❌ Не найдено поле для ввода имени пользователя")
+            session_manager.login_attempts += 1
             if not headless:
                 print("🔍 Браузер остается открытым для ручного входа")
                 input("Выполните вход вручную и нажмите Enter для продолжения...")
@@ -100,6 +194,7 @@ async def login_x(context: BrowserContext, headless: bool, login: str, password:
         
         if not password_input:
             print("❌ Не найдено поле для ввода пароля")
+            session_manager.login_attempts += 1
             if not headless:
                 print("🔍 Браузер остается открытым для ручного входа")
                 input("Выполните вход вручную и нажмите Enter для продолжения...")
@@ -141,6 +236,7 @@ async def login_x(context: BrowserContext, headless: bool, login: str, password:
                 if headless:
                     print("❌ Запустите скрипт с флагом --no-headless для ручного ввода 2FA кода.")
                     print("⚠️ Продолжаем без авторизации")
+                    session_manager.login_attempts += 1
                     await page.close()
                     return context
                 else:
@@ -161,6 +257,7 @@ async def login_x(context: BrowserContext, headless: bool, login: str, password:
                 error_element = await page.query_selector(selector)
                 if error_element:
                     print("❌ Ошибка входа: неверные учетные данные")
+                    session_manager.login_attempts += 1
                     print("⚠️ Продолжаем без авторизации")
                     await page.close()
                     return context
@@ -178,18 +275,21 @@ async def login_x(context: BrowserContext, headless: bool, login: str, password:
         for selector in success_selectors:
             try:
                 await page.wait_for_selector(selector, timeout=5000)
-                print("✅ Успешная авторизация в X.com")
+                print(f"✅ Успешная авторизация в X.com ({account_type} аккаунт)")
+                session_manager.login_attempts = 0  # Сброс счетчика при успехе
                 await page.close()
                 return context
             except:
                 continue
                 
         print("⚠️ Не удалось подтвердить успешный вход, но продолжаем...")
+        session_manager.login_attempts += 1
         await page.close()
         return context
 
     except Exception as e:
         print(f"❌ Ошибка при входе: {e}")
+        session_manager.login_attempts += 1
         if not headless:
             print("🔍 Браузер остается открытым для ручной проверки")
             input("Выполните вход вручную (если нужно) и нажмите Enter...")
@@ -204,9 +304,9 @@ async def check_account(page: Page, username: str) -> Dict:
     """Улучшенная проверка статуса аккаунта с дополнительными тестами"""
     url = f'https://x.com/{username}'
     result = {
-        "username": username, 
-        "status": "error", 
-        "last_activity": None, 
+        "username": username,
+        "status": "error",
+        "last_activity": None,
         "external_links": [],
         "follower_count": None,
         "following_count": None,
@@ -216,7 +316,7 @@ async def check_account(page: Page, username: str) -> Dict:
     try:
         print(f"🔍 Проверяем аккаунт: {username}")
         await page.goto(url, timeout=20000)
-        await asyncio.sleep(random.uniform(2.0, 4.0))
+        await asyncio.sleep(random.uniform(3.0, 6.0))  # Увеличенная задержка
         await human_like_behavior(page)
 
         # Получение содержимого страницы
@@ -260,7 +360,7 @@ async def check_account(page: Page, username: str) -> Dict:
         # Селекторы для поиска элемента "Following"
         following_selectors = [
             'a[href$="/following"]',
-            'a[href*="/following"]', 
+            'a[href*="/following"]',
             'div[data-testid="UserProfileHeader_Items"] a:has-text("Following")',
             'a:has-text("Following")',
             'span:has-text("Following")',
@@ -273,7 +373,7 @@ async def check_account(page: Page, username: str) -> Dict:
         
         for selector in following_selectors:
             try:
-                following_element = await page.wait_for_selector(selector, timeout=3000)
+                following_element = await page.wait_for_selector(selector, timeout=5000)
                 if following_element:
                     print(f"✅ Найден элемент Following: {selector}")
                     
@@ -289,7 +389,7 @@ async def check_account(page: Page, username: str) -> Dict:
                     
                     # Пробуем кликнуть
                     await following_element.click()
-                    await asyncio.sleep(random.uniform(1.5, 3.0))
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
                     
                     # Проверяем, что произошел переход
                     current_url = page.url
@@ -299,12 +399,12 @@ async def check_account(page: Page, username: str) -> Dict:
                         
                         # Возвращаемся обратно на профиль
                         await page.goto(url, timeout=15000)
-                        await asyncio.sleep(random.uniform(1.0, 2.5))
+                        await asyncio.sleep(random.uniform(2.0, 4.0))
                         break
                     else:
                         print(f"⚠️ Клик не привел к переходу для {username}")
                         
-            except Exception as e:
+            except Exception:
                 continue
         
         result['following_count'] = current_following_count
@@ -432,20 +532,26 @@ async def check_account(page: Page, username: str) -> Dict:
         print(f"⚠️ Ошибка проверки {username}: {e}")
         return result
 
-async def worker(sem: asyncio.Semaphore, context: BrowserContext, username: str) -> Dict:
+async def worker(sem: asyncio.Semaphore, context: BrowserContext, username: str, progress_manager: ProgressManager) -> Dict:
     """Воркер для обработки одного аккаунта с ограничением конкурентности"""
+    
+    # Пропускаем уже обработанные
+    if progress_manager.is_processed(username):
+        return {"username": username, "status": "skipped"}
+    
     async with sem:
-        # Случайная задержка между запросами для имитации человеческого поведения
-        await asyncio.sleep(random.uniform(1.0, 3.0))
+        # Увеличенные задержки для защиты
+        await asyncio.sleep(random.uniform(3.0, 7.0))
         
         page = await context.new_page()
         try:
             result = await check_account(page, username)
+            progress_manager.mark_processed(username)
             return result
         finally:
             await page.close()
             # Дополнительная задержка после закрытия страницы
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+            await asyncio.sleep(random.uniform(1.0, 3.0))
 
 def read_usernames_from_file(filepath: str) -> list:
     """Читает имена пользователей из файла (поддерживает CSV и TXT)"""
@@ -488,20 +594,35 @@ def read_usernames_from_file(filepath: str) -> list:
     return usernames
 
 async def main():
-    parser = argparse.ArgumentParser(description="Проверка статуса аккаунтов X.com с использованием async Playwright.")
+    parser = argparse.ArgumentParser(description="Проверка статуса аккаунтов X.com с поддержкой запасного аккаунта.")
     parser.add_argument('--input', '-i', required=True, help='Входной файл с именами пользователей (CSV с колонкой "username" или TXT)')
     parser.add_argument('--output', '-o', default='results.csv', help='Выходной CSV файл (по умолчанию: results.csv)')
-    parser.add_argument('--login', type=str, help='Логин X (имя пользователя/email)')
-    parser.add_argument('--password', type=str, help='Пароль X')
-    parser.add_argument('--max-concurrent', '-c', type=int, default=3, help='Максимальное количество одновременных проверок (по умолчанию: 3)')
+    parser.add_argument('--login', type=str, help='Основной логин X (имя пользователя/email)')
+    parser.add_argument('--password', type=str, help='Основной пароль X')
+    parser.add_argument('--backup-login', type=str, help='Запасной логин X (имя пользователя/email)')
+    parser.add_argument('--backup-password', type=str, help='Запасной пароль X')
+    parser.add_argument('--max-concurrent', '-c', type=int, default=2, help='Максимальное количество одновременных проверок (по умолчанию: 2)')
     parser.add_argument('--no-headless', action='store_true', help='Запустить браузер видимым (для отладки и ручной 2FA)')
+    parser.add_argument('--resume', action='store_true', help='Продолжить с места остановки')
     
     args = parser.parse_args()
+
+    # Инициализация менеджеров
+    progress_manager = ProgressManager()
+    session_manager = SessionManager()
 
     # Получение учетных данных
     login_cred = args.login or os.getenv('X_LOGIN')
     password_cred = args.password or os.getenv('X_PASSWORD')
+    backup_login = args.backup_login or os.getenv('X_BACKUP_LOGIN')
+    backup_password = args.backup_password or os.getenv('X_BACKUP_PASSWORD')
 
+    # Настройка аккаунтов в session manager
+    session_manager.set_accounts(login_cred, password_cred, backup_login, backup_password)
+
+    if session_manager.backup_account:
+        print(f"✅ Настроен запасной аккаунт: {backup_login}")
+    
     if (login_cred and not password_cred) or (password_cred and not login_cred):
         print("❌ Необходимо указать и логин, и пароль вместе.")
         sys.exit(1)
@@ -514,28 +635,41 @@ async def main():
     # Чтение списка пользователей
     usernames = read_usernames_from_file(args.input)
 
-    if not usernames:
-        print("❌ Не найдено имен пользователей в файле.")
-        sys.exit(1)
+    # Фильтрация уже обработанных при resume
+    if args.resume:
+        original_count = len(usernames)
+        usernames = [u for u in usernames if not progress_manager.is_processed(u)]
+        print(f"📊 Пропущено {original_count - len(usernames)} уже обработанных")
+        print(f"📊 Осталось обработать: {len(usernames)} пользователей")
+    else:
+        print(f"📊 Найдено {len(usernames)} пользователей для проверки")
 
-    print(f"📊 Найдено {len(usernames)} пользователей для проверки")
+    if not usernames:
+        print("✅ Все пользователи уже обработаны!")
+        sys.exit(0)
 
     # Запуск Playwright
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=not args.no_headless)
         
-        # Создание контекста с человекоподобными настройками
+        # Создание основного контекста
         context = await browser.new_context(
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
             viewport={'width': random.randint(1280, 1366), 'height': random.randint(720, 800)},
             locale='en-US',
             timezone_id='America/New_York'
         )
+        
+        session_manager.current_context = context
 
-        # Авторизация, если предоставлены учетные данные
-        if login_cred and password_cred:
-            print("🔐 Выполнение входа в X.com...")
-            context = await login_x(context, not args.no_headless, login_cred, password_cred)
+        # Авторизация основного аккаунта
+        if session_manager.primary_account:
+            print("🔐 Выполнение входа в основной аккаунт...")
+            context = await login_x(context, not args.no_headless, 
+                                  session_manager.primary_account[0], 
+                                  session_manager.primary_account[1], 
+                                  session_manager)
+            session_manager.current_context = context
         
         # Убеждаемся что context не None
         if context is None:
@@ -543,69 +677,123 @@ async def main():
             await browser.close()
             sys.exit(1)
 
-        # Создание семафора для ограничения конкурентности
-        sem = asyncio.Semaphore(args.max_concurrent)
+        # Семафор с уменьшенной конкурентностью
+        sem = asyncio.Semaphore(min(args.max_concurrent, 2))
         
-        print(f"🚀 Начинаем проверку с максимальной конкурентностью: {args.max_concurrent}")
+        print(f"🚀 Начинаем проверку с защитой (конкурентность: {min(args.max_concurrent, 2)})")
 
-        # Создание задач для всех пользователей
-        tasks = [asyncio.create_task(worker(sem, context, username)) for username in usernames]
         results = []
+        processed_count = 0
+        
+        # Обработка батчами по 100 аккаунтов
+        batch_size = 100
+        for batch_start in range(0, len(usernames), batch_size):
+            batch_usernames = usernames[batch_start:batch_start + batch_size]
+            
+            print(f"\n📦 Обработка батча {batch_start//batch_size + 1} ({len(batch_usernames)} аккаунтов)")
+            
+            # Проверка необходимости переключения аккаунта
+            if session_manager.should_switch_account():
+                print("⚠️ Слишком много неудачных попыток входа, переключаемся на запасной аккаунт...")
+                
+                if await session_manager.switch_to_backup(browser):
+                    context = session_manager.current_context
+                    # Авторизация запасного аккаунта
+                    context = await login_x(context, not args.no_headless,
+                                          session_manager.backup_account[0],
+                                          session_manager.backup_account[1],
+                                          session_manager)
+                    session_manager.current_context = context
+                else:
+                    print("❌ Не удалось переключиться на запасной аккаунт")
 
-        # Обработка результатов по мере завершения
-        for i, task in enumerate(asyncio.as_completed(tasks), 1):
-            try:
-                result = await task
-                results.append(result)
-                status_emoji = {
-                    'exists_verified': '✅',      # Подтверждено кликом
-                    'exists_likely': '☑️',       # Вероятно существует
-                    'does_not_exist': '❌',
-                    'suspended': '🚫',
-                    'protected': '🔒',
-                    'requires_auth': '🔑',
-                    'error': '⚠️'
-                }.get(result['status'], '❓')
-                
-                # Формирование дополнительной информации
-                extra_info = []
-                if result.get('following_count') is not None:
-                    extra_info.append(f"Following: {result['following_count']}")
-                if result.get('follower_count') is not None:
-                    extra_info.append(f"Followers: {result['follower_count']}")
-                if result.get('external_links'):
-                    extra_info.append(f"Links: {len(result['external_links'])}")
-                if result.get('verification') == 'verified':
-                    extra_info.append("✓")
-                
-                extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
-                
-                print(f"{status_emoji} [{i}/{len(usernames)}] {result['username']} -> {result['status']}{extra_str}")
-                
-            except Exception as e:
-                print(f"⚠️ [{i}/{len(usernames)}] Ошибка задачи: {e}")
-                results.append({"username": "unknown", "status": "error", "last_activity": None, "external_links": [], "following_count": None, "follower_count": None, "verification": "unknown"})
+            # Создание задач для батча
+            tasks = [asyncio.create_task(worker(sem, session_manager.current_context, username, progress_manager)) 
+                    for username in batch_usernames]
 
-        # Сохранение результатов в CSV
-        print(f"💾 Сохранение результатов в {args.output}...")
+            # Обработка результатов батча
+            for i, task in enumerate(asyncio.as_completed(tasks), 1):
+                try:
+                    result = await task
+                    if result['status'] != 'skipped':
+                        results.append(result)
+                        processed_count += 1
+                        
+                        status_emoji = {
+                            'exists_verified': '✅',      # Подтверждено кликом
+                            'exists_likely': '☑️',       # Вероятно существует
+                            'does_not_exist': '❌',
+                            'suspended': '🚫',
+                            'protected': '🔒',
+                            'requires_auth': '🔑',
+                            'error': '⚠️'
+                        }.get(result['status'], '❓')
+                        
+                        # Формирование дополнительной информации
+                        extra_info = []
+                        if result.get('following_count') is not None:
+                            extra_info.append(f"Following: {result['following_count']}")
+                        if result.get('follower_count') is not None:
+                            extra_info.append(f"Followers: {result['follower_count']}")
+                        if result.get('external_links'):
+                            extra_info.append(f"Links: {len(result['external_links'])}")
+                        if result.get('verification') == 'verified':
+                            extra_info.append("✓")
+                        
+                        extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
+                        
+                        account_info = "🔄 Запасной" if session_manager.is_using_backup else ""
+                        print(f"{status_emoji} [{processed_count}/{len(usernames)}] {result['username']} -> {result['status']}{extra_str} {account_info}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Ошибка задачи: {e}")
+                    results.append({"username": "unknown", "status": "error"})
+            
+            # Промежуточное сохранение после каждого батча
+            if results:
+                temp_output = args.output.replace('.csv', f'_batch_{batch_start//batch_size + 1}.csv')
+                with open(temp_output, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=['username', 'status', 'last_activity', 'external_links', 'following_count', 'follower_count', 'verification'])
+                    writer.writeheader()
+                    for result in results:
+                        links_str = '; '.join(result.get('external_links', []))
+                        writer.writerow({
+                            'username': result.get('username', ''),
+                            'status': result.get('status', ''),
+                            'last_activity': result.get('last_activity', ''),
+                            'external_links': links_str,
+                            'following_count': result.get('following_count', ''),
+                            'follower_count': result.get('follower_count', ''),
+                            'verification': result.get('verification', '')
+                        })
+                
+                print(f"💾 Промежуточное сохранение: {temp_output}")
+            
+            # Пауза между батчами
+            if batch_start + batch_size < len(usernames):
+                pause_time = random.randint(30, 60)
+                print(f"⏳ Пауза между батчами: {pause_time} секунд...")
+                await asyncio.sleep(pause_time)
+
+        # Финальное сохранение
+        progress_manager.save_progress()
+        
+        print(f"💾 Финальное сохранение в {args.output}...")
         with open(args.output, 'w', encoding='utf-8', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=['username', 'status', 'last_activity', 'external_links', 'following_count', 'follower_count', 'verification'])
             writer.writeheader()
             for result in results:
-                # Преобразуем список ссылок в строку
                 links_str = '; '.join(result.get('external_links', []))
                 writer.writerow({
                     'username': result.get('username', ''),
                     'status': result.get('status', ''),
-                    'last_activity': result.get('last_activity', '') or '',
+                    'last_activity': result.get('last_activity', ''),
                     'external_links': links_str,
-                    'following_count': result.get('following_count', '') or '',
-                    'follower_count': result.get('follower_count', '') or '',
+                    'following_count': result.get('following_count', ''),
+                    'follower_count': result.get('follower_count', ''),
                     'verification': result.get('verification', '')
                 })
 
-        print(f"✅ Проверка завершена! Результаты сохранены в {args.output}")
-        
         # Статистика
         stats = {}
         verified_count = 0
@@ -621,7 +809,7 @@ async def main():
             if result.get('external_links'):
                 total_links += len(result['external_links'])
         
-        print("\n📈 Статистика:")
+        print("\n📈 Финальная статистика:")
         for status, count in stats.items():
             emoji = {
                 'exists_verified': '✅',
@@ -637,6 +825,7 @@ async def main():
         print(f"\n🔍 Дополнительная статистика:")
         print(f"  ✅ Верифицированных аккаунтов: {verified_count}")
         print(f"  🔗 Всего внешних ссылок найдено: {total_links}")
+        print(f"  🔄 Использовался запасной аккаунт: {'Да' if session_manager.is_using_backup else 'Нет'}")
 
         await browser.close()
 
