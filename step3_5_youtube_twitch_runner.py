@@ -34,10 +34,10 @@ class Step3_5_YouTubeTwitchRunner:
         with open(config_file, 'r') as f:
             config_content = f.read()
         
-        # Replace any existing external links filename with the new one
+        # Replace any existing DATA_FILE reference with the new filename
         import re
         config_content = re.sub(
-            r'DATA_FILE = "[^"]*3_snapshot_[^"]*_external_links\.csv"',
+            r'DATA_FILE = "[^"]*"',
             f'DATA_FILE = "../output/{filename}"',
             config_content
         )
