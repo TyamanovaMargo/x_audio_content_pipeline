@@ -4,9 +4,9 @@
   --backup-login testbuba23@gmail.com --backup-password 15092025bubatest1 \ 
   --max-concurrent 2
 
+python test.py --input sample_usernames.csv --output results.csv --login margati@ac.sce.ac.il --password 15092025 --backup-login testbuba23@gmail.com --backup-password 15092025bubatest1 --no-headless
 
 
-python test.py --input sample_usernames.csv --login testbuba23@gmail.com --password 15092025bubatest1 --no-headless
 
 
 # Продолжение после остановки
