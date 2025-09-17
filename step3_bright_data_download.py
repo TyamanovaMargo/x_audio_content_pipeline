@@ -154,12 +154,12 @@ class BrightDataDownloader:
             return []
 
     def _safe_json_parse(self, response):
-        """Enhanced JSON parsing with NDJSON support"""
+        """Enhanced JSON parsing with NDJSON support and proper profile extraction"""
         try:
             # First try standard JSON parsing
             return response.json()
         except requests.exceptions.JSONDecodeError:
-            # Handle NDJSON (newline-delimited JSON)
+            # Handle NDJSON (newline-delimited JSON) and raw data
             text = response.text.strip()
             
             if not text:
@@ -176,19 +176,33 @@ class BrightDataDownloader:
                     print(f"❌ Failed to parse single line JSON: {lines[0][:100]}...")
                     return []
             else:
-                # Multiple lines, parse each as JSON
+                # Multiple lines, parse each as JSON - extract actual profiles, skip status objects
                 parsed_objects = []
                 for i, line in enumerate(lines):
                     try:
-                        parsed_objects.append(json.loads(line))
+                        obj = json.loads(line)
+                        # Skip status/message objects, keep actual profile data
+                        if isinstance(obj, dict):
+                            # Skip if it's just a status object
+                            if len(obj) == 2 and 'status' in obj and 'message' in obj:
+                                print(f"⏭️ Skipping status object: {obj}")
+                                continue
+                            # Keep objects that look like profiles (have profile fields)
+                            profile_indicators = ['username', 'screen_name', 'id', 'profile_name', 'biography', 'external_link', 'url', 'x_id']
+                            if any(key in obj for key in profile_indicators):
+                                parsed_objects.append(obj)
+                                print(f"✅ Found profile data with keys: {list(obj.keys())[:5]}...")
+                            else:
+                                print(f"⏭️ Skipping non-profile object with keys: {list(obj.keys())[:5]}")
                     except json.JSONDecodeError:
                         print(f"⚠️ Failed to parse line {i+1}: {line[:100]}...")
                         continue
                 
                 if parsed_objects:
+                    print(f"📊 Extracted {len(parsed_objects)} valid profiles from {len(lines)} JSON objects")
                     return parsed_objects
                 else:
-                    print(f"❌ No valid JSON found in {len(lines)} lines")
+                    print(f"❌ No valid profiles found in {len(lines)} JSON objects")
                     return []
 
     def extract_external_links(self, profiles: List[Dict]) -> List[Dict]:

@@ -1,20 +1,16 @@
 {
-  "s_mfnz20qt10swzq0esh": {
-    "snapshot_id": "s_mfnz20qt10swzq0esh",
-    "created_at": "2025-09-17T15:41:58.140347",
+  "s_mfo302fq4o3nduaqz": {
+    "snapshot_id": "s_mfo302fq4o3nduaqz",
+    "created_at": "2025-09-17T17:32:25.465252",
     "status": "pending",
-    "total_accounts": 6,
-    "accounts_file": "output/snapshots/s_mfnz20qt10swzq0esh_accounts.csv",
+    "total_accounts": 2,
+    "accounts_file": "output/snapshots/s_mfo302fq4o3nduaqz_accounts.csv",
     "usernames": [
       "Mauricio_Mejia",
-      "LucknawiRooh",
-      "Hussain_gg",
-      "_aibiam",
-      "barackomamba",
-      "digimishkas"
+      "Hussain_gg"
     ],
     "account_stats": {
-      "exists": 6
+      "exists": 2
     }
   }
 }
