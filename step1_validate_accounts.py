@@ -242,3 +242,4 @@ class AccountValidator:
         for status, count in stats.items():
             print(f"  {status}: {count}")
 
+verdion2
