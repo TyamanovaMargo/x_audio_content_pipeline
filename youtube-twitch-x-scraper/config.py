@@ -4,7 +4,7 @@ Configuration file for YouTube/Twitch Scraper
 """
 
 # File paths
-DATA_FILE = "../output/1.csv"  # DYNAMIC PLACEHOLDER
+DATA_FILE = "../output/3_snapshot_s_mfnz20qt10swzq0esh_external_links.csv"  # DYNAMIC PLACEHOLDER
 PROXY_FILE = "proxy/Free_Proxy_List.csv"
 OUTPUT_FILE = "../output/youtube_twitch_results_enhanced.csv"
 

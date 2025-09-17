@@ -59,7 +59,6 @@ class Step3_5_YouTubeTwitchRunner:
         # 4. Run the scraper
         print(f"🚀 Running YouTube-Twitch scraper...")
         print(f"📂 Input file: {external_links_file}")
-        print(f"📂 Expected output: {os.path.join(self.output_dir, 'youtube_twitch_results_enhanced.csv')}")
         
         try:
             # Change to scraper directory and run
@@ -74,7 +73,24 @@ class Step3_5_YouTubeTwitchRunner:
             os.chdir(original_cwd)
             
             if result.returncode == 0:
-                output_file = os.path.join(self.output_dir, "youtube_twitch_results_enhanced.csv")
+                # Extract snapshot_id from input filename for consistent naming
+                input_base = os.path.splitext(os.path.basename(external_links_file))[0]
+                
+                # Create output filename with snapshot_id
+                if 'snapshot_s_' in input_base:
+                    # Extract snapshot_id: 3_snapshot_s_mfif4c5826b1ml81j5_external_links -> s_mfif4c5826b1ml81j5
+                    snapshot_part = input_base.split('snapshot_s_')[1].split('_external_links')[0]
+                    output_file = os.path.join(self.output_dir, f"3_5_snapshot_s_{snapshot_part}_youtube_twitch_enhanced.csv")
+                else:
+                    # Fallback to original naming
+                    output_file = os.path.join(self.output_dir, "youtube_twitch_results_enhanced.csv")
+                
+                # Check if the scraper created the default file and rename it
+                default_output = os.path.join(self.output_dir, "youtube_twitch_results_enhanced.csv")
+                if os.path.exists(default_output) and output_file != default_output:
+                    import shutil
+                    shutil.move(default_output, output_file)
+                
                 if os.path.exists(output_file):
                     print("✅ Scraper completed successfully!")
                     print(f"📊 Results saved to: {output_file}")
