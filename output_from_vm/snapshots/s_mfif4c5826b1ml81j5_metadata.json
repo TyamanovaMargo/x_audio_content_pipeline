@@ -1,0 +1,18 @@
+{
+  "snapshot_id": "s_mfif4c5826b1ml81j5",
+  "created_at": "2025-09-13T18:25:03.680985",
+  "status": "pending",
+  "total_accounts": 6,
+  "accounts_file": "output/snapshots/s_mfif4c5826b1ml81j5_accounts.csv",
+  "usernames": [
+    "Hussain_gg",
+    "UpSyddigital",
+    "Mauricio_Mejia",
+    "CDawgVA",
+    "LucknawiRooh",
+    "FabuPonah"
+  ],
+  "account_stats": {
+    "exists": 6
+  }
+}
