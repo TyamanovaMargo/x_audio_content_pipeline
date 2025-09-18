@@ -216,3 +216,4 @@ voice_samples/
 *.mp3
 !output/3_snapshot_s_mepo7m7c1bhrdvfkc6_external_links.csv
 analysis.ipynb
+!simple_usernames.txt
