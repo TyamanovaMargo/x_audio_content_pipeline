@@ -7,7 +7,7 @@ def authenticate_huggingface():
     Authenticate with Hugging Face using your token.
     Get your token from: https://huggingface.co/settings/tokens
     """
-    token = "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"  # Replace with your actual token
+    # token = "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"  # Replace with your actual token
     login(token=token)
 
 def is_probably_singing(text: str):
