@@ -1,903 +1,613 @@
-#!/usr/bin/env python3
-
-import asyncio
-import csv
 import os
-import sys
+import shutil
 import argparse
-import json
 import logging
-from datetime import datetime
-from typing import Optional, Dict, List
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext
-import random
-import time
+import json
+from glob import glob
+from pathlib import Path
+from pydub import AudioSegment
+import torch
+import whisper
+from pyannote.audio import Pipeline
+from typing import List, Dict, Optional, Union
+import pandas as pd
+import numpy as np
+import warnings
+warnings.filterwarnings("ignore")
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('x_checker.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# NeMo imports for Parakeet
+try:
+    import nemo.collections.asr as nemo_asr
+    NEMO_AVAILABLE = True
+except ImportError:
+    NEMO_AVAILABLE = False
+    print("⚠️ NeMo not installed. Install with: pip install nemo_toolkit[asr]")
 
-class SessionManager:
-    """Enhanced session manager with better account switching and state tracking."""
-    
-    def __init__(self):
-        self.primary_account = None
-        self.backup_account = None
-        self.current_context = None
-        self.is_using_backup = False
-        self.login_attempts = 0
-        self.max_login_attempts = 2
-        self.is_authenticated = False
-        self.last_activity = datetime.now()
-    
-    def set_accounts(self, primary_login, primary_password, backup_login=None, backup_password=None):
-        if primary_login and primary_password:
-            self.primary_account = (primary_login, primary_password)
-            logger.info(f"Primary account configured: {primary_login}")
+class ParakeetWrapper:
+    """
+    Wrapper for NeMo Parakeet-TDT-0.6B-v3 model with pipeline-like API
+    """
+    def __init__(self, device: str = "auto"):
+        if not NEMO_AVAILABLE:
+            raise ImportError("NeMo not available. Install with: pip install nemo_toolkit[asr]")
         
-        if backup_login and backup_password:
-            self.backup_account = (backup_login, backup_password)
-            logger.info(f"Backup account configured: {backup_login}")
-    
-    async def switch_to_backup(self, browser: Browser):
-        """Switch to backup account with new context."""
-        if not self.backup_account or self.is_using_backup:
-            logger.warning("Backup account unavailable or already in use")
-            return False
-        
-        logger.info("Switching to backup account...")
-        self.is_using_backup = True
-        self.login_attempts = 0
-        self.is_authenticated = False
-        
-        if self.current_context:
-            await self.current_context.close()
-        
-        # Create new context with different fingerprint
-        self.current_context = await browser.new_context(
-            user_agent=self.get_random_user_agent(),
-            viewport={'width': random.randint(1200, 1400), 'height': random.randint(800, 1000)},
-            locale=random.choice(['en-US', 'en-GB', 'en-CA']),
-            timezone_id=random.choice(['America/New_York', 'Europe/London', 'America/Los_Angeles'])
-        )
-        
-        logger.info("New context created for backup account")
-        return True
-    
-    def get_random_user_agent(self) -> str:
-        agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0'
-        ]
-        return random.choice(agents)
-    
-    def should_switch_account(self) -> bool:
-        return (self.login_attempts >= self.max_login_attempts and 
-                self.backup_account and not self.is_using_backup)
-
-class ProgressManager:
-    """Enhanced progress manager with better error handling."""
-    
-    def __init__(self, filename='x_checker_progress.json'):
-        self.filename = filename
-        self.processed = set()
-        self.failed = set()
-        self.stats = {'total': 0, 'success': 0, 'failed': 0}
-        self.load_progress()
-    
-    def load_progress(self):
-        if os.path.exists(self.filename):
-            try:
-                with open(self.filename, 'r') as f:
-                    data = json.load(f)
-                    self.processed = set(data.get('processed', []))
-                    self.failed = set(data.get('failed', []))
-                    self.stats = data.get('stats', {'total': 0, 'success': 0, 'failed': 0})
-                    logger.info(f"Progress loaded: {len(self.processed)} processed, {len(self.failed)} failed")
-            except Exception as e:
-                logger.error(f"Error loading progress: {e}")
-    
-    def save_progress(self):
+        print("🔄 Loading Parakeet model via NeMo...")
         try:
-            with open(self.filename, 'w') as f:
-                json.dump({
-                    'processed': list(self.processed),
-                    'failed': list(self.failed),
-                    'stats': self.stats,
-                    'timestamp': datetime.now().isoformat()
-                }, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving progress: {e}")
-    
-    def is_processed(self, username: str) -> bool:
-        return username in self.processed
-    
-    def mark_processed(self, username: str, success: bool = True):
-        self.processed.add(username)
-        if success:
-            self.stats['success'] += 1
-        else:
-            self.stats['failed'] += 1
-            self.failed.add(username)
-        
-        if len(self.processed) % 5 == 0:  # Save more frequently
-            self.save_progress()
-
-async def human_like_behavior(page: Page, intensity: str = "normal"):
-    """Enhanced human-like behavior with different intensity levels."""
-    try:
-        if intensity == "light":
-            await page.mouse.move(random.randint(100, 300), random.randint(100, 300))
-            await asyncio.sleep(random.uniform(0.5, 1.0))
-        elif intensity == "normal":
-            await page.mouse.move(random.randint(100, 500), random.randint(100, 400))
-            await asyncio.sleep(random.uniform(1.0, 2.0))
-            await page.mouse.move(random.randint(200, 600), random.randint(200, 500))
-            await asyncio.sleep(random.uniform(0.5, 1.5))
-            await page.evaluate('window.scrollBy(0, Math.floor(Math.random() * 200));')
-            await asyncio.sleep(random.uniform(0.3, 1.0))
-        elif intensity == "heavy":
-            for _ in range(random.randint(2, 4)):
-                await page.mouse.move(random.randint(100, 800), random.randint(100, 600))
-                await asyncio.sleep(random.uniform(0.5, 1.0))
-            await page.evaluate('window.scrollBy(0, Math.floor(Math.random() * 300));')
-            await asyncio.sleep(random.uniform(2.0, 4.0))
-    except Exception as e:
-        logger.warning(f"Error in human-like behavior: {e}")
-
-async def wait_for_element(page: Page, selectors: List[str], timeout: int = 5000, visible: bool = True):
-    """Enhanced element waiting with multiple selectors."""
-    for selector in selectors:
-        try:
-            element = await page.wait_for_selector(selector, timeout=timeout, state='visible' if visible else 'attached')
-            if element:
-                return element, selector
-        except:
-            continue
-    return None, None
-
-async def login_x(context: BrowserContext, headless: bool, login: str, password: str, session_manager: SessionManager) -> BrowserContext:
-    """Completely rewritten login function with modern selectors and robust verification."""
-    page = await context.new_page()
-    
-    try:
-        account_type = "backup" if session_manager.is_using_backup else "primary"
-        logger.info(f"Starting login process ({account_type} account)")
-        
-        # Navigate to login page
-        await page.goto('https://x.com/i/flow/login', timeout=30000)
-        await asyncio.sleep(random.uniform(3.0, 6.0))
-        
-        logger.info(f"Current URL: {page.url}")
-        logger.info(f"Page title: {await page.title()}")
-        
-        # Step 1: Find and fill username field
-        username_selectors = [
-            'input[autocomplete="username"]',
-            'input[name="text"]',
-            'input[data-testid="ocfEnterTextTextInput"]',
-            'input[type="text"]:not([style*="display: none"])',
-            'input[placeholder*="username"]',
-            'input[placeholder*="email"]'
-        ]
-        
-        username_input, used_selector = await wait_for_element(page, username_selectors, timeout=10000)
-        
-        if not username_input:
-            logger.error("Username input field not found")
-            session_manager.login_attempts += 1
-            if not headless:
-                logger.info("Browser remains open for manual login")
-                input("Please log in manually and press Enter to continue...")
-            await page.close()
-            return context
-        
-        logger.info(f"Username field found: {used_selector}")
-        await username_input.clear()
-        await username_input.fill(login)
-        await human_like_behavior(page, "normal")
-        
-        # Step 2: Click Next button
-        next_selectors = [
-            'div[role="button"] span:text("Next")',
-            'button:text("Next")',
-            'div[role="button"]:has-text("Next")',
-            '[data-testid="LoginForm_Login_Button"]',
-            'div[role="button"]:has-text("Далее")',
-            'button[type="button"]:has-text("Next")'
-        ]
-        
-        next_button, next_selector = await wait_for_element(page, next_selectors, timeout=8000)
-        if next_button:
-            await next_button.click()
-            logger.info(f"Next button clicked: {next_selector}")
-        else:
-            logger.warning("Next button not found, continuing...")
-        
-        await asyncio.sleep(random.uniform(3.0, 5.0))
-        
-        # Step 3: Handle potential username verification or challenges
-        await handle_username_challenges(page, headless, session_manager)
-        
-        # Step 4: Find and fill password field
-        password_selectors = [
-            'input[autocomplete="current-password"]',
-            'input[name="password"]',
-            'input[type="password"]',
-            'input[data-testid="ocfEnterTextTextInput"]:not([autocomplete="username"])',
-            'input[placeholder*="password"]'
-        ]
-        
-        password_input, pass_selector = await wait_for_element(page, password_selectors, timeout=15000)
-        
-        if not password_input:
-            logger.error("Password input field not found")
-            session_manager.login_attempts += 1
-            if not headless:
-                logger.info("Browser remains open for manual login")
-                input("Please log in manually and press Enter to continue...")
-            await page.close()
-            return context
-        
-        logger.info(f"Password field found: {pass_selector}")
-        await password_input.clear()
-        await password_input.fill(password)
-        await human_like_behavior(page, "normal")
-        
-        # Step 5: Click login button
-        login_selectors = [
-            'div[role="button"] span:text("Log in")',
-            'button:text("Log in")',
-            'div[role="button"]:has-text("Log in")',
-            'div[role="button"]:has-text("Войти")',
-            '[data-testid="LoginForm_Login_Button"]',
-            'button[type="submit"]'
-        ]
-        
-        login_button, login_selector = await wait_for_element(page, login_selectors, timeout=8000)
-        if login_button:
-            await login_button.click()
-            logger.info(f"Login button clicked: {login_selector}")
-        else:
-            logger.warning("Login button not found, but continuing...")
-        
-        # Step 6: Wait for login processing
-        logger.info("Waiting for login to process...")
-        await asyncio.sleep(random.uniform(8.0, 12.0))
-        
-        # Step 7: Handle 2FA and other challenges
-        if await handle_2fa_and_challenges(page, headless, session_manager):
-            await page.close()
-            return context
-        
-        # Step 8: Check for login errors
-        if await check_login_errors(page, session_manager):
-            await page.close()
-            return context
-        
-        # Step 9: Verify successful login
-        success = await verify_login_success(page, session_manager)
-        
-        if success:
-            logger.info(f"✅ Successful login to X.com ({account_type} account)")
-            session_manager.login_attempts = 0
-            session_manager.is_authenticated = True
-        else:
-            logger.warning("Could not verify successful login, but continuing...")
-            session_manager.login_attempts += 1
-            logger.info(f"Final URL: {page.url}")
-        
-        await page.close()
-        return context
-        
-    except Exception as e:
-        logger.error(f"Critical error during login: {e}")
-        session_manager.login_attempts += 1
-        
-        if not headless:
-            logger.info("Browser remains open for debugging")
-            input("Check browser state and press Enter...")
-        
-        try:
-            await page.close()
-        except:
-            pass
-        return context
-
-async def handle_username_challenges(page: Page, headless: bool, session_manager: SessionManager):
-    """Handle username verification challenges."""
-    try:
-        # Look for unusual activity warnings
-        warning_selectors = [
-            'text="There was unusual login activity"',
-            'text="Help us verify that it\'s you"',
-            'text="Unusual activity"'
-        ]
-        
-        for selector in warning_selectors:
-            if await page.query_selector(selector):
-                logger.warning(f"Unusual activity warning detected: {selector}")
-                if not headless:
-                    input("Please handle the verification manually and press Enter...")
-                    await asyncio.sleep(3)
-                break
-    except Exception as e:
-        logger.warning(f"Error handling username challenges: {e}")
-
-async def handle_2fa_and_challenges(page: Page, headless: bool, session_manager: SessionManager) -> bool:
-    """Handle 2FA and other login challenges."""
-    try:
-        # Look for various challenge indicators
-        challenge_selectors = [
-            'input[name="challenge_response"]',
-            'input[data-testid="ocfEnterTextTextInput"][placeholder*="code"]',
-            'input[placeholder*="verification"]',
-            'input[placeholder*="Code"]',
-            'text="Enter your phone number"',
-            'text="Check your email"'
-        ]
-        
-        for selector in challenge_selectors:
-            element = await page.query_selector(selector)
-            if element:
-                logger.info(f"Challenge detected: {selector}")
-                if headless:
-                    logger.error("Challenge requires manual input. Run with --no-headless")
-                    session_manager.login_attempts += 1
-                    return True
-                else:
-                    logger.info("Please complete the challenge manually in the browser")
-                    input("Press Enter after completing the challenge...")
-                    await asyncio.sleep(5)
-                    break
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error handling challenges: {e}")
-        return False
-
-async def check_login_errors(page: Page, session_manager: SessionManager) -> bool:
-    """Check for login errors."""
-    try:
-        error_indicators = [
-            "Sorry, we could not authenticate you",
-            "Wrong password",
-            "Your account has been locked",
-            "Too many attempts",
-            "Неправильное имя пользователя",
-            "Неверный пароль"
-        ]
-        
-        page_content = await page.content()
-        
-        for error_text in error_indicators:
-            if error_text.lower() in page_content.lower():
-                logger.error(f"Login error detected: {error_text}")
-                session_manager.login_attempts += 1
-                return True
-        
-        # Check for error elements
-        error_selectors = [
-            '[data-testid="LoginForm_Error"]',
-            '[role="alert"]',
-            '.error-message'
-        ]
-        
-        for selector in error_selectors:
-            error_element = await page.query_selector(selector)
-            if error_element:
-                error_text = await error_element.inner_text()
-                logger.error(f"Login error: {error_text}")
-                session_manager.login_attempts += 1
-                return True
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error checking login errors: {e}")
-        return False
-
-async def verify_login_success(page: Page, session_manager: SessionManager) -> bool:
-    """Verify successful login using multiple methods."""
-    try:
-        current_url = page.url
-        logger.info(f"Verifying login success. Current URL: {current_url}")
-        
-        # Method 1: URL-based verification (most reliable)
-        success_url_patterns = [
-            'https://x.com/home',
-            'https://x.com/',
-            'https://twitter.com/home',
-            'https://twitter.com/'
-        ]
-        
-        for pattern in success_url_patterns:
-            if current_url.startswith(pattern):
-                logger.info("✅ Login verified by URL")
-                return True
-        
-        # Method 2: Check if not on login pages
-        if not any(keyword in current_url.lower() for keyword in ['login', 'flow', 'authenticate', 'sessions']):
-            logger.info("✅ Login verified: no longer on login page")
-            return True
-        
-        # Method 3: Look for authenticated elements
-        success_selectors = [
-            '[data-testid="AppTabBar_Home_Link"]',
-            '[data-testid="SideNav_NewTweet_Button"]',
-            '[data-testid="SideNav_AccountSwitcher_Button"]',
-            '[aria-label="Home timeline"]',
-            'nav[role="navigation"][aria-label="Primary"]',
-            '[data-testid="primaryColumn"]',
-            'aside[aria-label="Who to follow"]',
-            'main[role="main"]'
-        ]
-        
-        for selector in success_selectors:
-            try:
-                element = await page.wait_for_selector(selector, timeout=3000)
-                if element:
-                    logger.info(f"✅ Login verified by element: {selector}")
-                    return True
-            except:
-                continue
-        
-        # Method 4: Check page title
-        page_title = await page.title()
-        if any(title in page_title.lower() for title in ['home', 'x']):
-            if 'login' not in page_title.lower():
-                logger.info(f"✅ Login verified by title: {page_title}")
-                return True
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error verifying login success: {e}")
-        return False
-
-async def check_account_simple(page: Page, username: str) -> Dict:
-    """Simplified account checking with better detection avoidance."""
-    url = f'https://x.com/{username}'
-    result = {
-        "username": username,
-        "status": "error",
-        "last_activity": None,
-        "external_links": [],
-        "follower_count": None,
-        "following_count": None,
-        "verification": "unknown"
-    }
-    
-    try:
-        logger.info(f"Checking account: {username}")
-        
-        # Navigate to profile
-        response = await page.goto(url, timeout=30000)
-        await asyncio.sleep(random.uniform(4.0, 8.0))
-        await human_like_behavior(page, "light")
-        
-        # Check response status
-        if response and response.status == 404:
-            result['status'] = 'does_not_exist'
-            logger.info(f"❌ Account {username} does not exist (404)")
-            return result
-        
-        # Get page content for analysis
-        content = await page.content()
-        content_lower = content.lower()
-        
-        # Check for various account states
-        if "this account doesn't exist" in content_lower or "page does not exist" in content_lower:
-            result['status'] = 'does_not_exist'
-            logger.info(f"❌ Account {username} does not exist")
-            return result
-        
-        if "account suspended" in content_lower:
-            result['status'] = 'suspended'
-            logger.info(f"🚫 Account {username} is suspended")
-            return result
-        
-        if any(phrase in content_lower for phrase in ["tweets are protected", "protected tweets"]):
-            result['status'] = 'protected'
-            logger.info(f"🔒 Account {username} is protected")
-            return result
-        
-        # Look for profile indicators
-        profile_indicators = [
-            '[data-testid="UserName"]',
-            '[data-testid="UserDescription"]',
-            '[data-testid="UserAvatar"]',
-            '[data-testid="UserProfileHeader"]'
-        ]
-        
-        profile_found = False
-        for indicator in profile_indicators:
-            if await page.query_selector(indicator):
-                profile_found = True
-                logger.info(f"✅ Profile element found: {indicator}")
-                break
-        
-        if profile_found:
-            # Try to extract basic info safely
-            await extract_basic_info(page, result)
-            result['status'] = 'exists'
-            logger.info(f"✅ Account {username} exists")
-        else:
-            result['status'] = 'requires_auth'
-            logger.info(f"🔑 Account {username} may require authentication")
-        
-        return result
-        
-    except Exception as e:
-        result['status'] = 'error'
-        result['error'] = str(e)
-        logger.error(f"Error checking {username}: {e}")
-        return result
-
-async def extract_basic_info(page: Page, result: Dict):
-    """Safely extract basic account information."""
-    try:
-        # Extract follower/following counts
-        count_selectors = [
-            'a[href*="/followers"] span',
-            'a[href*="/following"] span',
-            '[data-testid="UserProfileHeader_Items"] a span'
-        ]
-        
-        for selector in count_selectors:
-            try:
-                elements = await page.query_selector_all(selector)
-                for element in elements:
-                    text = await element.inner_text()
-                    if text and any(char.isdigit() for char in text):
-                        # Simple number extraction
-                        numbers = ''.join(filter(str.isdigit, text))
-                        if numbers:
-                            count = int(numbers)
-                            parent = await element.evaluate('el => el.closest("a")')
-                            if parent:
-                                href = await parent.get_attribute('href')
-                                if href and '/followers' in href:
-                                    result['follower_count'] = count
-                                elif href and '/following' in href:
-                                    result['following_count'] = count
-            except:
-                continue
-        
-        # Check verification status
-        verification_selectors = [
-            '[data-testid="verificationBadge"]',
-            'svg[aria-label="Verified account"]'
-        ]
-        
-        for selector in verification_selectors:
-            if await page.query_selector(selector):
-                result['verification'] = "verified"
-                break
-        else:
-            result['verification'] = "not_verified"
-        
-        # Extract external links safely
-        link_selectors = [
-            '[data-testid="UserUrl"] a',
-            '[data-testid="UserDescription"] a[href^="http"]'
-        ]
-        
-        external_links = []
-        for selector in link_selectors:
-            try:
-                links = await page.query_selector_all(selector)
-                for link in links:
-                    href = await link.get_attribute('href')
-                    if href and not any(domain in href.lower() for domain in ['x.com', 'twitter.com', 't.co']):
-                        external_links.append(href)
-            except:
-                continue
-        
-        result['external_links'] = list(set(external_links))  # Remove duplicates
-        
-    except Exception as e:
-        logger.warning(f"Error extracting basic info: {e}")
-
-async def worker(sem: asyncio.Semaphore, context: BrowserContext, username: str, progress_manager: ProgressManager) -> Dict:
-    """Worker function with enhanced rate limiting."""
-    if progress_manager.is_processed(username):
-        return {"username": username, "status": "skipped"}
-    
-    async with sem:
-        # Enhanced delays for better stealth
-        await asyncio.sleep(random.uniform(5.0, 12.0))
-        
-        page = await context.new_page()
-        try:
-            result = await check_account_simple(page, username)
-            progress_manager.mark_processed(username, result['status'] != 'error')
-            return result
-        finally:
-            await page.close()
-            await asyncio.sleep(random.uniform(2.0, 5.0))
-
-def read_usernames_from_file(filepath: str) -> List[str]:
-    """Enhanced file reading with better error handling."""
-    usernames = []
-    
-    try:
-        with open(filepath, 'r', encoding='utf-8') as infile:
-            if filepath.endswith('.csv'):
-                reader = csv.DictReader(infile)
-                
-                if 'username' not in reader.fieldnames:
-                    logger.error(f"CSV file missing 'username' column")
-                    logger.info(f"Available columns: {reader.fieldnames}")
-                    sys.exit(1)
-                
-                for row in reader:
-                    username = row['username'].strip()
-                    if username:
-                        username = username.lstrip('@')  # Remove @ if present
-                        usernames.append(username)
-            else:
-                for line in infile:
-                    username = line.strip()
-                    if username:
-                        username = username.lstrip('@')
-                        usernames.append(username)
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_usernames = []
-        for username in usernames:
-            if username not in seen:
-                seen.add(username)
-                unique_usernames.append(username)
-        
-        logger.info(f"Loaded {len(unique_usernames)} unique usernames")
-        return unique_usernames
-        
-    except Exception as e:
-        logger.error(f"Error reading file: {e}")
-        sys.exit(1)
-
-def save_results(results: List[Dict], output_file: str):
-    """Enhanced results saving with better error handling."""
-    try:
-        fieldnames = ['username', 'status', 'last_activity', 'external_links', 
-                     'following_count', 'follower_count', 'verification']
-        
-        with open(output_file, 'w', encoding='utf-8', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
+            self.model = nemo_asr.models.ASRModel.from_pretrained(
+                model_name="nvidia/parakeet-tdt-0.6b-v3"
+            )
             
-            for result in results:
-                # Clean up data for CSV
-                row = {
-                    'username': result.get('username', ''),
-                    'status': result.get('status', ''),
-                    'last_activity': result.get('last_activity', ''),
-                    'external_links': '; '.join(result.get('external_links', [])),
-                    'following_count': result.get('following_count', ''),
-                    'follower_count': result.get('follower_count', ''),
-                    'verification': result.get('verification', '')
-                }
-                writer.writerow(row)
-        
-        logger.info(f"Results saved to {output_file}")
-        
-    except Exception as e:
-        logger.error(f"Error saving results: {e}")
+            if device == "auto":
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            
+            if device == "cuda" and torch.cuda.is_available():
+                self.model = self.model.cuda()
+            
+            self.device = device
+            print("✅ Parakeet model loaded successfully!")
+            
+        except Exception as e:
+            print(f"❌ Failed to load Parakeet: {e}")
+            raise
 
-def print_statistics(results: List[Dict]):
-    """Print detailed statistics."""
-    stats = {}
-    verified_count = 0
-    total_links = 0
-    
-    for result in results:
-        status = result.get('status', 'unknown')
-        stats[status] = stats.get(status, 0) + 1
+    def __call__(self, input_dict):
+        """
+        Transcribe audio
+        input_dict = {"array": np.ndarray, "sampling_rate": 16000}
+        Returns: {"text": str}
+        """
+        if not isinstance(input_dict, dict):
+            raise TypeError("Expected dict with 'array' and 'sampling_rate'")
         
-        if result.get('verification') == 'verified':
-            verified_count += 1
+        wav = input_dict["array"]
+        sr = input_dict["sampling_rate"]
         
-        if result.get('external_links'):
-            total_links += len(result['external_links'])
-    
-    print("\n📈 Final Statistics:")
-    status_emojis = {
-        'exists': '✅',
-        'does_not_exist': '❌',
-        'suspended': '🚫',
-        'protected': '🔒',
-        'requires_auth': '🔑',
-        'error': '⚠️',
-        'skipped': '⏭️'
-    }
-    
-    for status, count in stats.items():
-        emoji = status_emojis.get(status, '❓')
-        print(f"  {emoji} {status}: {count}")
-    
-    print(f"\n🔍 Additional Statistics:")
-    print(f"  ✅ Verified accounts: {verified_count}")
-    print(f"  🔗 Total external links found: {total_links}")
-    print(f"  📊 Success rate: {(stats.get('exists', 0) / max(len(results), 1) * 100):.1f}%")
+        if sr != 16000:
+            raise ValueError("Model expects 16kHz audio")
+        
+        # Ensure proper format for NeMo
+        if len(wav.shape) > 1:
+            wav = wav.squeeze()
+        
+        try:
+            # NeMo expects list of numpy arrays
+            transcriptions = self.model.transcribe([wav], batch_size=1)
+            text = transcriptions[0] if transcriptions else ""
+            return {"text": text}
+        except Exception as e:
+            print(f"Transcription error: {e}")
+            return {"text": ""}
 
-async def main():
-    """Enhanced main function with better flow control."""
-    parser = argparse.ArgumentParser(description="X.com Account Status Checker - Enhanced Version")
-    parser.add_argument('--input', '-i', required=True, help='Input file with usernames (CSV with "username" column or TXT)')
-    parser.add_argument('--output', '-o', default='x_results.csv', help='Output CSV file (default: x_results.csv)')
-    parser.add_argument('--login', type=str, help='Primary X login (username/email)')
-    parser.add_argument('--password', type=str, help='Primary X password')
-    parser.add_argument('--backup-login', type=str, help='Backup X login (username/email)')
-    parser.add_argument('--backup-password', type=str, help='Backup X password')
-    parser.add_argument('--max-concurrent', '-c', type=int, default=1, help='Max concurrent checks (default: 1)')
-    parser.add_argument('--no-headless', action='store_true', help='Run browser visibly (for debugging/2FA)')
-    parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint')
-    parser.add_argument('--batch-size', type=int, default=20, help='Batch size for processing (default: 20)')
+class SpeechOnlyDetector:
+    """
+    Advanced speech detector that filters out singing, music, and noise
+    Saves only files containing pure speech/conversation
+    """
+    
+    def __init__(self, 
+                 output_dir: str,
+                 config_path: str = "config.json",
+                 threshold: float = 0.6,
+                 min_duration: float = 5.0,
+                 verbose: bool = True):
+        
+        self.output_dir = Path(output_dir)
+        self.threshold = threshold
+        self.min_duration = min_duration
+        self.verbose = verbose
+        
+        # Load configuration
+        self.config = self._load_config(config_path)
+        
+        # Override with config values if available
+        if self.config:
+            self.threshold = self.config.get('threshold', self.threshold)
+            self.min_duration = self.config.get('min_duration', self.min_duration)
+            self.verbose = self.config.get('verbose', self.verbose)
+        
+        # Create output directory
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize models
+        self._initialize_models()
+        
+        # Setup logging
+        self._setup_logging()
+        
+        # Statistics
+        self.stats = {
+            'total_processed': 0,
+            'speech_detected': 0,
+            'singing_detected': 0,
+            'music_detected': 0,
+            'too_short': 0,
+            'errors': 0
+        }
+    
+    def _load_config(self, config_path: str) -> Optional[Dict]:
+        """Load configuration from JSON file"""
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Config load error: {e}")
+        return None
+    
+    def _initialize_models(self):
+        """Initialize all AI models"""
+        # Get Hugging Face token
+        hf_token = None
+        if self.config:
+            hf_token = self.config.get('huggingface_token')
+        
+        # Initialize Whisper
+        print("🔄 Loading Whisper model...")
+        whisper_size = "base"
+        if self.config and 'whisper' in self.config:
+            whisper_size = self.config['whisper'].get('model_size', 'base')
+        
+        self.whisper_model = whisper.load_model(whisper_size)
+        print("✅ Whisper model loaded!")
+        
+        # Initialize Pyannote VAD
+        print("🔄 Loading Pyannote VAD...")
+        try:
+            vad_model = "pyannote/voice-activity-detection"
+            if self.config and 'pyannote' in self.config:
+                vad_model = self.config['pyannote'].get('vad_model', vad_model)
+            
+            if hf_token:
+                self.vad_pipeline = Pipeline.from_pretrained(vad_model, use_auth_token=hf_token)
+            else:
+                self.vad_pipeline = Pipeline.from_pretrained(vad_model)
+            print("✅ Pyannote VAD loaded!")
+        except Exception as e:
+            print(f"⚠️ Pyannote VAD failed: {e}")
+            self.vad_pipeline = None
+        
+        # Initialize Parakeet
+        try:
+            device = "auto"
+            if self.config:
+                device = self.config.get('device', 'auto')
+            self.parakeet_pipeline = ParakeetWrapper(device=device)
+        except Exception as e:
+            print(f"⚠️ Parakeet failed to load: {e}")
+            self.parakeet_pipeline = None
+    
+    def _setup_logging(self):
+        """Setup logging configuration"""
+        log_file = self.output_dir / "speech_detection.log"
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler() if self.verbose else logging.NullHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+    
+    def _audio_to_numpy(self, audio_path: str) -> tuple:
+        """Load audio and convert to numpy array"""
+        try:
+            audio = AudioSegment.from_file(audio_path)
+            audio = audio.set_frame_rate(16000).set_channels(1)
+            
+            # Convert to numpy
+            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+            samples = samples / (2**15)  # Normalize to [-1, 1]
+            
+            duration = len(audio) / 1000.0
+            return samples, duration, True
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Audio load error: {e}")
+            return None, 0, False
+    
+    def _detect_voice_activity(self, audio_path: str, samples: np.ndarray, duration: float) -> Dict:
+        """Detect voice activity using Pyannote VAD"""
+        if not self.vad_pipeline:
+            # Fallback: assume reasonable speech ratio
+            return {
+                'speech_duration': duration * 0.7,
+                'speech_ratio': 0.7,
+                'speech_segments': [(0, duration)]
+            }
+        
+        try:
+            # Convert to tensor for Pyannote
+            waveform = torch.from_numpy(samples).unsqueeze(0)
+            vad_input = {'waveform': waveform, 'sample_rate': 16000}
+            
+            vad_result = self.vad_pipeline(vad_input)
+            speech_segments = vad_result.get_timeline().support()
+            speech_duration = sum(segment.duration for segment in speech_segments)
+            speech_ratio = speech_duration / duration if duration > 0 else 0
+            
+            return {
+                'speech_duration': speech_duration,
+                'speech_ratio': speech_ratio,
+                'speech_segments': [(seg.start, seg.end) for seg in speech_segments]
+            }
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ VAD error: {e}")
+            return {
+                'speech_duration': duration * 0.5,
+                'speech_ratio': 0.5,
+                'speech_segments': [(0, duration)]
+            }
+    
+    def _transcribe_audio(self, audio_path: str) -> Dict:
+        """Transcribe audio using Whisper"""
+        try:
+            result = self.whisper_model.transcribe(audio_path)
+            text = result.get('text', '').strip()
+            return {
+                'transcription': text,
+                'word_count': len(text.split()) if text else 0,
+                'success': True
+            }
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Whisper error: {e}")
+            return {
+                'transcription': '',
+                'word_count': 0,
+                'success': False
+            }
+    
+    def _detect_singing_parakeet(self, samples: np.ndarray, duration: float) -> Dict:
+        """Detect singing using Parakeet + heuristics"""
+        result = {
+            'is_singing': False,
+            'singing_score': 0.0,
+            'parakeet_transcription': '',
+            'details': {}
+        }
+        
+        if not self.parakeet_pipeline:
+            return result
+        
+        try:
+            # Transcribe with Parakeet
+            input_data = {"array": samples, "sampling_rate": 16000}
+            parakeet_result = self.parakeet_pipeline(input_data)
+            transcription = parakeet_result.get('text', '').strip()
+            result['parakeet_transcription'] = transcription
+            
+            if not transcription:
+                return result
+            
+            # Analyze transcription for singing patterns
+            words = transcription.lower().split()
+            word_count = len(words)
+            unique_words = len(set(words)) if words else 0
+            repetition_ratio = unique_words / word_count if word_count > 0 else 0
+            words_per_minute = (word_count / duration) * 60 if duration > 0 else 0
+            
+            # Singing detection heuristics
+            singing_score = 0.0
+            
+            # Unusual speaking rate (too slow/fast)
+            if words_per_minute < 40 or words_per_minute > 220:
+                singing_score += 0.4
+            
+            # High repetition (common in songs)
+            if repetition_ratio < 0.25:
+                singing_score += 0.35
+            
+            # Too few words for duration (instrumental parts)
+            if word_count < 8 and duration > 15:
+                singing_score += 0.25
+            
+            # Common singing patterns
+            singing_patterns = ['la la', 'na na', 'oh oh', 'hey hey', 'yeah yeah', 'da da']
+            if any(pattern in transcription.lower() for pattern in singing_patterns):
+                singing_score += 0.3
+            
+            result['singing_score'] = min(singing_score, 1.0)
+            result['is_singing'] = singing_score > 0.5
+            result['details'] = {
+                'words_per_minute': words_per_minute,
+                'repetition_ratio': repetition_ratio,
+                'word_count': word_count
+            }
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Parakeet singing detection error: {e}")
+        
+        return result
+    
+    def _detect_music_heuristics(self, whisper_text: str, parakeet_text: str, 
+                                vad_info: Dict, duration: float) -> Dict:
+        """Detect music using various heuristics"""
+        music_score = 0.0
+        reasons = []
+        
+        # Text-based indicators
+        words = whisper_text.lower().split() if whisper_text else []
+        word_count = len(words)
+        words_per_minute = (word_count / duration) * 60 if duration > 0 else 0
+        
+        # Very low speech ratio
+        speech_ratio = vad_info.get('speech_ratio', 0)
+        if speech_ratio < 0.25:
+            music_score += 0.3
+            reasons.append("low_speech_ratio")
+        
+        # Unusual word rate
+        if words_per_minute < 30 or words_per_minute > 250:
+            music_score += 0.25
+            reasons.append("unusual_word_rate")
+        
+        # Inconsistency between transcription models
+        if whisper_text and parakeet_text:
+            whisper_words = set(whisper_text.lower().split())
+            parakeet_words = set(parakeet_text.lower().split())
+            if len(whisper_words.intersection(parakeet_words)) < len(whisper_words) * 0.3:
+                music_score += 0.2
+                reasons.append("transcription_inconsistency")
+        
+        # Music-related keywords
+        music_keywords = ['music', 'song', 'beat', 'melody', 'instrumental', 'track']
+        if any(keyword in whisper_text.lower() for keyword in music_keywords):
+            music_score += 0.15
+            reasons.append("music_keywords")
+        
+        return {
+            'is_music': music_score > 0.4,
+            'music_score': music_score,
+            'reasons': reasons
+        }
+    
+    def analyze_audio_file(self, file_path: Union[str, Path]) -> Dict:
+        """
+        Comprehensive analysis of a single audio file
+        Returns detailed analysis results
+        """
+        file_path = Path(file_path)
+        
+        result = {
+            'file_path': str(file_path),
+            'filename': file_path.name,
+            'contains_speech': False,
+            'is_singing': False,
+            'is_music': False,
+            'speech_score': 0.0,
+            'duration': 0.0,
+            'transcription': '',
+            'word_count': 0,
+            'error': None,
+            'details': {}
+        }
+        
+        try:
+            if self.verbose:
+                print(f"\n🎵 Analyzing: {file_path.name}")
+            
+            # Check file size
+            if file_path.stat().st_size < 1000:
+                result['error'] = 'File too small (< 1KB)'
+                self.stats['errors'] += 1
+                return result
+            
+            # Load audio
+            samples, duration, success = self._audio_to_numpy(str(file_path))
+            if not success:
+                result['error'] = 'Failed to load audio'
+                self.stats['errors'] += 1
+                return result
+            
+            result['duration'] = duration
+            
+            # Check minimum duration
+            if duration < self.min_duration:
+                result['error'] = f'Too short: {duration:.1f}s < {self.min_duration}s'
+                self.stats['too_short'] += 1
+                return result
+            
+            # Voice Activity Detection
+            vad_info = self._detect_voice_activity(str(file_path), samples, duration)
+            speech_duration = vad_info['speech_duration']
+            
+            if speech_duration < self.min_duration:
+                result['error'] = f'Insufficient speech: {speech_duration:.1f}s'
+                self.stats['too_short'] += 1
+                return result
+            
+            # Transcription with Whisper
+            whisper_result = self._transcribe_audio(str(file_path))
+            if not whisper_result['success'] or whisper_result['word_count'] < 3:
+                result['error'] = 'No meaningful speech detected'
+                self.stats['errors'] += 1
+                return result
+            
+            result['transcription'] = whisper_result['transcription']
+            result['word_count'] = whisper_result['word_count']
+            
+            # Singing detection with Parakeet
+            singing_result = self._detect_singing_parakeet(samples, duration)
+            result['is_singing'] = singing_result['is_singing']
+            
+            if result['is_singing']:
+                result['error'] = f'Singing detected (score: {singing_result["singing_score"]:.2f})'
+                self.stats['singing_detected'] += 1
+                if self.verbose:
+                    print(f"  🎤 Singing detected!")
+                return result
+            
+            # Music detection
+            music_result = self._detect_music_heuristics(
+                whisper_result['transcription'],
+                singing_result['parakeet_transcription'],
+                vad_info,
+                duration
+            )
+            result['is_music'] = music_result['is_music']
+            
+            if result['is_music']:
+                result['error'] = f'Music detected (score: {music_result["music_score"]:.2f})'
+                self.stats['music_detected'] += 1
+                if self.verbose:
+                    print(f"  🎶 Music detected!")
+                return result
+            
+            # Calculate speech quality score
+            speech_score = 0.5  # Base score
+            
+            # Word rate quality
+            words_per_minute = (whisper_result['word_count'] / duration) * 60
+            if 60 <= words_per_minute <= 180:
+                speech_score += 0.2
+            
+            # Speech ratio quality
+            if vad_info['speech_ratio'] > 0.6:
+                speech_score += 0.2
+            
+            # Word count quality
+            if whisper_result['word_count'] > 15:
+                speech_score += 0.1
+            
+            result['speech_score'] = min(speech_score, 1.0)
+            result['details'] = {
+                'words_per_minute': words_per_minute,
+                'speech_ratio': vad_info['speech_ratio'],
+                'speech_duration': speech_duration,
+                'vad_segments': len(vad_info['speech_segments'])
+            }
+            
+            # Final decision
+            if result['speech_score'] >= self.threshold and whisper_result['word_count'] >= 5:
+                result['contains_speech'] = True
+                self.stats['speech_detected'] += 1
+                if self.verbose:
+                    print(f"  ✅ Pure speech detected! Score: {result['speech_score']:.2f}")
+                    print(f"     Words: {whisper_result['word_count']}, "
+                          f"Rate: {words_per_minute:.0f} wpm, "
+                          f"Duration: {speech_duration:.1f}s")
+            else:
+                result['error'] = f'Low speech quality (score: {result["speech_score"]:.2f})'
+                if self.verbose:
+                    print(f"  ❌ Low quality speech")
+        
+        except Exception as e:
+            result['error'] = f'Analysis failed: {str(e)}'
+            self.stats['errors'] += 1
+            if self.verbose:
+                print(f"  ❌ Error: {e}")
+        
+        return result
+    
+    def process_directory(self, source_dir: Union[str, Path]) -> List[Dict]:
+        """
+        Process all audio files in a directory
+        Saves speech-only files to output directory
+        """
+        source_dir = Path(source_dir)
+        
+        # Find all audio files
+        audio_extensions = ['*.mp3', '*.wav', '*.m4a', '*.flac', '*.ogg']
+        audio_files = []
+        for ext in audio_extensions:
+            audio_files.extend(source_dir.glob(ext))
+        
+        if not audio_files:
+            print(f"❌ No audio files found in {source_dir}")
+            return []
+        
+        print(f"\n🎤 Found {len(audio_files)} audio files in {source_dir}")
+        print("=" * 70)
+        
+        results = []
+        copied_files = 0
+        
+        for i, file_path in enumerate(audio_files, 1):
+            print(f"\n📁 Processing ({i}/{len(audio_files)}): {file_path.name}")
+            
+            # Analyze file
+            result = self.analyze_audio_file(file_path)
+            results.append(result)
+            self.stats['total_processed'] += 1
+            
+            # Copy speech-only files
+            if result['contains_speech'] and not result['error']:
+                output_path = self.output_dir / file_path.name
+                try:
+                    shutil.copy2(file_path, output_path)
+                    result['output_path'] = str(output_path)
+                    copied_files += 1
+                    if self.verbose:
+                        print(f"     💾 Saved to: {output_path.name}")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"     ❌ Copy failed: {e}")
+        
+        # Print summary
+        print("\n" + "=" * 70)
+        print("🎯 PROCESSING COMPLETE!")
+        print(f"📊 Total files processed: {self.stats['total_processed']}")
+        print(f"✅ Speech-only files saved: {self.stats['speech_detected']}")
+        print(f"🎤 Singing detected: {self.stats['singing_detected']}")
+        print(f"🎶 Music detected: {self.stats['music_detected']}")
+        print(f"⏱️ Too short: {self.stats['too_short']}")
+        print(f"❌ Errors: {self.stats['errors']}")
+        print(f"📁 Output directory: {self.output_dir}")
+        
+        # Save detailed CSV report
+        self._save_csv_report(results)
+        
+        return results
+    
+    def _save_csv_report(self, results: List[Dict]):
+        """Save detailed analysis report to CSV"""
+        if not results:
+            return
+        
+        df = pd.DataFrame(results)
+        csv_path = self.output_dir / "speech_analysis_report.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"📄 Detailed report saved: {csv_path}")
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Speech-Only Audio Detector - Filters out singing, music, and noise'
+    )
+    parser.add_argument('--source', type=str, required=True,
+                        help='Source directory with audio files')
+    parser.add_argument('--dest', type=str, required=True,
+                        help='Destination directory for speech-only files')
+    parser.add_argument('--config', type=str, default='config.json',
+                        help='Configuration file path')
+    parser.add_argument('--threshold', type=float, default=0.6,
+                        help='Speech quality threshold (0.0-1.0)')
+    parser.add_argument('--min_duration', type=float, default=5.0,
+                        help='Minimum duration in seconds')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Enable verbose output')
     
     args = parser.parse_args()
     
-    # Initialize managers
-    progress_manager = ProgressManager()
-    session_manager = SessionManager()
+    # Initialize detector
+    detector = SpeechOnlyDetector(
+        output_dir=args.dest,
+        config_path=args.config,
+        threshold=args.threshold,
+        min_duration=args.min_duration,
+        verbose=args.verbose
+    )
     
-    # Get credentials
-    login_cred = args.login or os.getenv('X_LOGIN')
-    password_cred = args.password or os.getenv('X_PASSWORD')
-    backup_login = args.backup_login or os.getenv('X_BACKUP_LOGIN')
-    backup_password = args.backup_password or os.getenv('X_BACKUP_PASSWORD')
+    # Process directory
+    results = detector.process_directory(args.source)
     
-    session_manager.set_accounts(login_cred, password_cred, backup_login, backup_password)
-    
-    if (login_cred and not password_cred) or (password_cred and not login_cred):
-        logger.error("Both login and password must be provided together")
-        sys.exit(1)
-    
-    # Check input file
-    if not os.path.exists(args.input):
-        logger.error(f"Input file not found: {args.input}")
-        sys.exit(1)
-    
-    # Read usernames
-    usernames = read_usernames_from_file(args.input)
-    
-    # Filter already processed if resuming
-    if args.resume:
-        original_count = len(usernames)
-        usernames = [u for u in usernames if not progress_manager.is_processed(u)]
-        logger.info(f"Resuming: {original_count - len(usernames)} already processed")
-        logger.info(f"Remaining to process: {len(usernames)} users")
-    else:
-        logger.info(f"Total users to check: {len(usernames)}")
-    
-    if not usernames:
-        logger.info("✅ All users already processed!")
-        return
-    
-    # Start Playwright
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=not args.no_headless,
-            args=['--disable-blink-features=AutomationControlled']
-        )
-        
-        # Create main context
-        context = await browser.new_context(
-            user_agent=session_manager.get_random_user_agent(),
-            viewport={'width': random.randint(1280, 1400), 'height': random.randint(800, 1000)},
-            locale='en-US',
-            timezone_id='America/New_York'
-        )
-        
-        session_manager.current_context = context
-        
-        # Attempt login if credentials provided
-        if session_manager.primary_account:
-            logger.info("🔐 Attempting login to primary account...")
-            context = await login_x(context, not args.no_headless,
-                                  session_manager.primary_account[0],
-                                  session_manager.primary_account[1],
-                                  session_manager)
-            session_manager.current_context = context
-        
-        # Process in batches with conservative settings
-        sem = asyncio.Semaphore(1)  # Very conservative: only 1 concurrent request
-        batch_size = min(args.batch_size, 20)
-        results = []
-        processed_count = 0
-        
-        logger.info(f"🚀 Starting processing (concurrency: 1, batch size: {batch_size})")
-        
-        for batch_start in range(0, len(usernames), batch_size):
-            batch_usernames = usernames[batch_start:batch_start + batch_size]
-            batch_num = batch_start // batch_size + 1
-            
-            logger.info(f"\n📦 Processing batch {batch_num} ({len(batch_usernames)} accounts)")
-            
-            # Check if account switching is needed
-            if session_manager.should_switch_account():
-                logger.warning("Too many failed login attempts, switching to backup account...")
-                if await session_manager.switch_to_backup(browser):
-                    context = session_manager.current_context
-                    context = await login_x(context, not args.no_headless,
-                                          session_manager.backup_account[0],
-                                          session_manager.backup_account[1],
-                                          session_manager)
-                    session_manager.current_context = context
-                else:
-                    logger.error("Failed to switch to backup account")
-            
-            # Create tasks for batch
-            tasks = [asyncio.create_task(worker(sem, session_manager.current_context, username, progress_manager))
-                    for username in batch_usernames]
-            
-            # Process batch results
-            for i, task in enumerate(asyncio.as_completed(tasks), 1):
-                try:
-                    result = await task
-                    if result['status'] != 'skipped':
-                        results.append(result)
-                        processed_count += 1
-                    
-                    status_emoji = {
-                        'exists': '✅',
-                        'does_not_exist': '❌',
-                        'suspended': '🚫',
-                        'protected': '🔒',
-                        'requires_auth': '🔑',
-                        'error': '⚠️',
-                        'skipped': '⏭️'
-                    }.get(result['status'], '❓')
-                    
-                    extra_info = []
-                    if result.get('following_count') is not None:
-                        extra_info.append(f"Following: {result['following_count']}")
-                    if result.get('follower_count') is not None:
-                        extra_info.append(f"Followers: {result['follower_count']}")
-                    if result.get('external_links'):
-                        extra_info.append(f"Links: {len(result['external_links'])}")
-                    if result.get('verification') == 'verified':
-                        extra_info.append("✓")
-                    
-                    extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
-                    account_info = "🔄 Backup" if session_manager.is_using_backup else ""
-                    
-                    print(f"{status_emoji} [{processed_count}/{len(usernames)}] {result['username']} -> {result['status']}{extra_str} {account_info}")
-                    
-                except Exception as e:
-                    logger.error(f"Task error: {e}")
-                    results.append({"username": "unknown", "status": "error"})
-            
-            # Save intermediate results
-            if results:
-                temp_output = args.output.replace('.csv', f'_batch_{batch_num}.csv')
-                save_results(results, temp_output)
-                logger.info(f"💾 Intermediate save: {temp_output}")
-            
-            # Pause between batches (longer for better stealth)
-            if batch_start + batch_size < len(usernames):
-                pause_time = random.randint(120, 300)  # 2-5 minutes
-                logger.info(f"⏳ Pausing between batches: {pause_time} seconds...")
-                await asyncio.sleep(pause_time)
-        
-        # Final save and statistics
-        progress_manager.save_progress()
-        save_results(results, args.output)
-        print_statistics(results)
-        
-        logger.info(f"🎉 Processing complete! Results saved to {args.output}")
-        await browser.close()
+    # Final summary
+    speech_count = sum(1 for r in results if r['contains_speech'])
+    print(f"\n🏁 FINAL RESULT: {speech_count}/{len(results)} files contain pure speech")
+    print(f"   These files have been saved to: {args.dest}")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
