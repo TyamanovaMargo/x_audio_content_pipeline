@@ -48,9 +48,20 @@ class AudioDownloader:
         for info in links:
             username = info.get('username', 'user')
             profile_name = info.get('profile_name', '')
-            url = info.get('url', '')
             
-            logger.info(f"Processing user: {username}, profile: {profile_name}, url: {url}")
+            # Priority: platform_url (from Stage 4) > youtube_url > twitch_url > url
+            url = (info.get('platform_url') or 
+                   info.get('youtube_url') or 
+                   info.get('twitch_url') or 
+                   info.get('url', ''))
+            
+            original_url = info.get('url', '')
+            platform_type = info.get('platform_type', 'unknown')
+            
+            logger.info(f"Processing user: {username}, profile: {profile_name}")
+            logger.info(f"  Original URL: {original_url}")
+            logger.info(f"  Platform URL: {url}")
+            logger.info(f"  Platform Type: {platform_type}")
             
             result = self.process_link(url, username)
             if result:
@@ -58,7 +69,9 @@ class AudioDownloader:
                 result.update({
                     'original_username': username,
                     'original_profile_name': profile_name,
-                    'original_url': url
+                    'original_url': original_url,
+                    'platform_url': url,
+                    'platform_type': platform_type
                 })
                 results.append(result)
                 
