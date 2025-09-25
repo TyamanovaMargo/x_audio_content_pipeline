@@ -1,0 +1,219 @@
+{
+  "processing_summary": {
+    "total_files": 27,
+    "folder_distribution": {
+      "excellent": 2,
+      "good": 1,
+      "acceptable": 0,
+      "poor_quality": 1,
+      "background_music": 7,
+      "singing_vocal": 1,
+      "emotional": 1,
+      "conversation": 5,
+      "other": 9
+    },
+    "processing_time": "2025-09-25T13:38:11.428502"
+  },
+  "folder_descriptions": {
+    "excellent": "Perfect for voice model training - clean speech, single speaker",
+    "good": "Good quality speech with minimal interference",
+    "acceptable": "Acceptable but may need manual review",
+    "poor_quality": "Audio quality issues (reverb, distortion)",
+    "background_music": "Speech with background music - may still be usable",
+    "singing_vocal": "Singing/vocal music - not suitable for speech models",
+    "emotional": "Emotional speech - may affect voice consistency",
+    "conversation": "Multiple speakers - extract individual voices",
+    "other": "Non-speech content or processing errors"
+  },
+  "file_details": {
+    "foxtrot44_audio_part1.mp3": {
+      "category": "background_music",
+      "reason": "Speech with background music (music count: 187)",
+      "confidence": 0.6056976044343577,
+      "target_folder": "voice_model_data/05_has_background_music",
+      "processing_time": "2025-09-25T13:25:49.678910"
+    },
+    "foxtrot44_audio_part2.mp3": {
+      "category": "other",
+      "reason": "Failed to load audio",
+      "confidence": 0,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:25:49.687333"
+    },
+    "elysiagriffin_audio_part2.mp3": {
+      "category": "other",
+      "reason": "Failed to load audio",
+      "confidence": 0,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:25:49.687898"
+    },
+    "superjangames_audio_part1.mp3": {
+      "category": "other",
+      "reason": "No significant speech content (confidence: 0.000)",
+      "confidence": 0.0,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:25:51.601218"
+    },
+    "elysiagriffin_audio_part1.mp3": {
+      "category": "background_music",
+      "reason": "Speech with background music (music count: 58)",
+      "confidence": 0.6737130640592012,
+      "target_folder": "voice_model_data/05_has_background_music",
+      "processing_time": "2025-09-25T13:26:49.902393"
+    },
+    "alexis_clear_audio_part1.mp3": {
+      "category": "good",
+      "reason": "Good speech quality, minimal interference (confidence: 1.001)",
+      "confidence": 1.000620738014971,
+      "target_folder": "voice_model_data/02_good_for_voice",
+      "processing_time": "2025-09-25T13:27:02.319895"
+    },
+    "fabuponah_audio_part2.mp3": {
+      "category": "other",
+      "reason": "Failed to load audio",
+      "confidence": 0,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:27:02.322058"
+    },
+    "javiimontalvo_audio_part2.mp3": {
+      "category": "emotional",
+      "reason": "Emotional speech detected (count: 11)",
+      "confidence": 0.5578878015831664,
+      "target_folder": "voice_model_data/07_emotional_speech",
+      "processing_time": "2025-09-25T13:27:50.611662"
+    },
+    "strangeland_elf_audio_part1.mp3": {
+      "category": "background_music",
+      "reason": "Speech with background music (music count: 55)",
+      "confidence": 0.49053806826776386,
+      "target_folder": "voice_model_data/05_has_background_music",
+      "processing_time": "2025-09-25T13:28:08.657694"
+    },
+    "apastelwitch_audio_part1.mp3": {
+      "category": "background_music",
+      "reason": "Speech with background music (music count: 40)",
+      "confidence": 0.6312086586714596,
+      "target_folder": "voice_model_data/05_has_background_music",
+      "processing_time": "2025-09-25T13:28:21.903254"
+    },
+    "fabuponah_audio_part1.mp3": {
+      "category": "conversation",
+      "reason": "Conversation/multiple speakers (count: 14)",
+      "confidence": 0.3183931725875785,
+      "target_folder": "voice_model_data/08_conversation_multiple_speakers",
+      "processing_time": "2025-09-25T13:29:31.126645"
+    },
+    "javiimontalvo_audio_part1.mp3": {
+      "category": "conversation",
+      "reason": "Conversation/multiple speakers (count: 5)",
+      "confidence": 0.686665853102588,
+      "target_folder": "voice_model_data/08_conversation_multiple_speakers",
+      "processing_time": "2025-09-25T13:30:45.199902"
+    },
+    "makaylareads_audio_part1.mp3": {
+      "category": "poor_quality",
+      "reason": "Poor audio quality (count: 43)",
+      "confidence": 0.6563164140521125,
+      "target_folder": "voice_model_data/04_poor_quality",
+      "processing_time": "2025-09-25T13:31:01.417824"
+    },
+    "bartholomewopl_audio_part2.mp3": {
+      "category": "excellent",
+      "reason": "High-quality speech, no interference (confidence: 0.981)",
+      "confidence": 0.9810397735534188,
+      "target_folder": "voice_model_data/01_excellent_for_voice",
+      "processing_time": "2025-09-25T13:31:28.811008"
+    },
+    "nebulaasmr_audio_part1.mp3": {
+      "category": "background_music",
+      "reason": "Speech with background music (music count: 5)",
+      "confidence": 0.510761496990062,
+      "target_folder": "voice_model_data/05_has_background_music",
+      "processing_time": "2025-09-25T13:32:07.717545"
+    },
+    "bartholomewopl_audio_part1.mp3": {
+      "category": "excellent",
+      "reason": "High-quality speech, no interference (confidence: 1.087)",
+      "confidence": 1.0866583882934517,
+      "target_folder": "voice_model_data/01_excellent_for_voice",
+      "processing_time": "2025-09-25T13:33:09.353630"
+    },
+    "pastel_pages_audio_part1.mp3": {
+      "category": "background_music",
+      "reason": "Speech with background music (music count: 190)",
+      "confidence": 0.8382738096712354,
+      "target_folder": "voice_model_data/05_has_background_music",
+      "processing_time": "2025-09-25T13:34:15.024717"
+    },
+    "merlenau_audio_part1.mp3": {
+      "category": "conversation",
+      "reason": "Conversation/multiple speakers (count: 29)",
+      "confidence": 0.710910765412781,
+      "target_folder": "voice_model_data/08_conversation_multiple_speakers",
+      "processing_time": "2025-09-25T13:35:24.168373"
+    },
+    "erynithmawen_audio_part1.mp3": {
+      "category": "singing_vocal",
+      "reason": "Singing/vocal music detected (count: 23)",
+      "confidence": 0.40350877192982454,
+      "target_folder": "voice_model_data/06_singing_vocal_music",
+      "processing_time": "2025-09-25T13:35:31.267640"
+    },
+    "merlenau_audio_part2.mp3": {
+      "category": "other",
+      "reason": "Failed to load audio",
+      "confidence": 0,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:35:31.269652"
+    },
+    "ashinthecut_audio_part1.mp3": {
+      "category": "conversation",
+      "reason": "Conversation/multiple speakers (count: 2)",
+      "confidence": 0.2589534240273329,
+      "target_folder": "voice_model_data/08_conversation_multiple_speakers",
+      "processing_time": "2025-09-25T13:35:35.762717"
+    },
+    "sarapyon1228_audio_part2.mp3": {
+      "category": "other",
+      "reason": "Failed to load audio",
+      "confidence": 0,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:35:35.765332"
+    },
+    "sarapyon1228_audio_part1.mp3": {
+      "category": "background_music",
+      "reason": "Speech with background music (music count: 150)",
+      "confidence": 0.7703134398907423,
+      "target_folder": "voice_model_data/05_has_background_music",
+      "processing_time": "2025-09-25T13:36:46.693549"
+    },
+    "missaj90_audio_part1.mp3": {
+      "category": "other",
+      "reason": "No significant speech content (confidence: 0.008)",
+      "confidence": 0.007941626012325287,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:36:53.592983"
+    },
+    "gtjio_audio_part2.mp3": {
+      "category": "other",
+      "reason": "Failed to load audio",
+      "confidence": 0,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:36:53.594661"
+    },
+    "hussain_gg_audio_part1.mp3": {
+      "category": "other",
+      "reason": "No significant speech content (confidence: 0.187)",
+      "confidence": 0.18697372737030188,
+      "target_folder": "voice_model_data/09_other_content",
+      "processing_time": "2025-09-25T13:37:04.532870"
+    },
+    "gtjio_audio_part1.mp3": {
+      "category": "conversation",
+      "reason": "Conversation/multiple speakers (count: 2)",
+      "confidence": 0.5391889043566254,
+      "target_folder": "voice_model_data/08_conversation_multiple_speakers",
+      "processing_time": "2025-09-25T13:38:11.422511"
+    }
+  }
+}
